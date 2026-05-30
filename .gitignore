@@ -220,3 +220,6 @@ __marimo__/
 .streamlit/secrets.toml
 
 .claude
+
+# Project runtime artifacts
+data_ingest/live_alerts.json

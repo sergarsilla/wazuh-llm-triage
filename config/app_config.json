@@ -1,0 +1,24 @@
+{
+  "wazuh_alerts_path": "data_ingest/live_alerts.json",
+  "read_from_start": false,
+
+  "qdrant_url": "http://localhost:6333",
+  "qdrant_collection": "brooktec_knowledge",
+
+  "ollama_url": "http://localhost:11434",
+  "embedding_model_name": "all-minilm",
+  "embedding_dim": 384,
+  "llm_model_name": "llama3:8b-instruct-q4_K_M",
+
+  "min_alert_level": 7,
+  "rag_top_k": 5,
+  "request_timeout_seconds": 120,
+
+  "responder": {
+    "dry_run": true,
+    "wazuh_api_url": "https://YOUR_WAZUH_MANAGER:55000",
+    "wazuh_api_user": "wazuh-wui",
+    "wazuh_api_password": "CHANGE_ME",
+    "verify_ssl": false
+  }
+}
