@@ -1,0 +1,35 @@
+# Run this on the Wazuh manager host. Both services share one built image and
+# read deployment values from a local .env file (copy it from .env.example).
+#
+#   Index the knowledge base into Qdrant (one-off, re-run when the KB changes):
+#       docker compose run --rm populate
+#
+#   Start the real-time triage middleware (runs forever, restarts on reboot):
+#       docker compose up -d triage
+#
+# UNIX sockets work across bind mounts because it is the same kernel.
+services:
+
+  # Long-running real-time triage middleware (the production service).
+  triage:
+    build: .
+    image: wazuh-llm-triage
+    container_name: wazuh-llm-triage
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./config:/app/config
+      - /var/ossec/logs/alerts:/var/ossec/logs/alerts:ro
+      - /var/ossec/queue/sockets:/var/ossec/queue/sockets
+
+  # One-off knowledge-base indexing job. Guarded by a profile so it never starts
+  # automatically; run it explicitly with `docker compose run --rm populate`.
+  populate:
+    build: .
+    image: wazuh-llm-triage
+    profiles: ["populate"]
+    command: python data_ingest/populate_db.py
+    env_file: .env
+    volumes:
+      - ./config:/app/config
+      - ./data_ingest:/app/data_ingest
