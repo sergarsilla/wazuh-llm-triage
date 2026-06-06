@@ -15,11 +15,36 @@ import os
 import time
 from typing import Any, Dict, Generator, Optional
 
+from .verdict_contract import VERDICT_LOCATION, VERDICT_RULE_IDS
+
 logger = logging.getLogger(__name__)
 
 # Seconds to wait between read attempts when the file has no new data, and
 # between retries while waiting for the alerts file to appear.
 _DEFAULT_POLL_INTERVAL = 0.5
+
+
+def _is_own_verdict(alert: Dict[str, Any]) -> bool:
+    """Return True if the alert is a verdict this middleware re-injected.
+
+    Re-injected verdicts carry the ``llm_triage`` location/group and a
+    ``data.llm_triage`` payload, and arrive back in ``alerts.json`` at a high
+    ``rule.level``. Without this guard the consumer would triage its own output
+    in an endless loop. Checks several markers for defence in depth.
+    """
+    if str(alert.get("location", "")) == VERDICT_LOCATION:
+        return True
+    data = alert.get("data")
+    if isinstance(data, dict) and VERDICT_LOCATION in data:
+        return True
+    rule = alert.get("rule")
+    if isinstance(rule, dict):
+        if str(rule.get("id", "")) in VERDICT_RULE_IDS:
+            return True
+        groups = rule.get("groups")
+        if isinstance(groups, (list, tuple)) and VERDICT_LOCATION in groups:
+            return True
+    return False
 
 
 def _extract_rule_level(alert: Dict[str, Any]) -> Optional[int]:
@@ -113,6 +138,11 @@ def watch_alerts(
                         alert = json.loads(raw_line)
                     except json.JSONDecodeError:
                         logger.warning("Skipping malformed JSON line in %s", file_path)
+                        continue
+
+                    # Never re-triage a verdict we ourselves re-injected, or the
+                    # consumer would loop forever on its own high-level output.
+                    if _is_own_verdict(alert):
                         continue
 
                     level = _extract_rule_level(alert)
