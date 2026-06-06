@@ -1,4 +1,4 @@
-BROOKTEC ASSET INVENTORY (SIMULATED)
+EXAMPLE CORP ASSET INVENTORY (SIMULATED)
 
 web-prod-01 (Wazuh agent 001, IP 10.20.0.11)
 Public-facing NGINX web server hosting the corporate site. Exposed to the

@@ -1,4 +1,4 @@
-BROOKTEC NETWORK & ACCESS POLICIES (SIMULATED)
+EXAMPLE CORP NETWORK & ACCESS POLICIES (SIMULATED)
 
 Production segment: 10.20.0.0/24. All hosts are monitored by Wazuh.
 

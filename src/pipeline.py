@@ -16,14 +16,13 @@ loop.
 
 from __future__ import annotations
 
-import json
 import logging
 import queue
 import sys
 import threading
-from pathlib import Path
 from typing import Any, Dict
 
+from .config import load_config
 from .ingester import watch_alerts
 from .llm_client import OllamaSOCClient
 from .rag_manager import QdrantRAGManager
@@ -41,14 +40,6 @@ def _setup_logging() -> None:
         format="%(asctime)s %(levelname)-8s [%(name)s] %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
-
-
-def _load_config(config_path: str) -> Dict[str, Any]:
-    path = Path(config_path)
-    if not path.is_file():
-        raise FileNotFoundError(f"Configuration file not found: {path.resolve()}")
-    with path.open("r", encoding="utf-8") as handle:
-        return json.load(handle)
 
 
 def _agent_id_of(alert: Dict[str, Any]) -> str:
@@ -114,7 +105,7 @@ def _process_alert(
 def start_soc_pipeline(config_path: str = "config/app_config.json") -> None:
     """Start the autonomous triage loop using the given configuration file."""
     _setup_logging()
-    config = _load_config(config_path)
+    config = load_config(config_path)
     logger.info("Starting SOC-L1 triage pipeline (config: %s)", config_path)
 
     timeout = int(config.get("request_timeout_seconds", 120))

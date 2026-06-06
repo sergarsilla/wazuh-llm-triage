@@ -1,4 +1,4 @@
-BROOKTEC SOC RUNBOOKS (SIMULATED)
+EXAMPLE CORP SOC RUNBOOKS (SIMULATED)
 
 Runbook: SSH brute force from external IP
 1. Confirm the source IP is not part of 10.20.0.0/24 and not the bastion

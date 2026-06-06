@@ -60,10 +60,10 @@ flagged HIGH/CRITICAL with a suggested `firewall-drop`; the internal scanner
 alert classified as a **false positive** (thanks to RAG); and a root login on
 the crown-jewel DB flagged CRITICAL.
 
-## 3. Run against your real Oracle Wazuh manager
+## 3. Run against your real Wazuh manager
 
-On the Oracle Cloud (free-tier) box that runs the **Wazuh Manager**, deploy this
-project and point it at the live alert log:
+On the box that runs the **Wazuh Manager**, deploy this project and point it at
+the live alert log:
 
 1. Install Ollama + Qdrant on the manager (or reach them over the network) and
    pull the two models.
@@ -88,8 +88,8 @@ project and point it at the live alert log:
    manager's `ossec.conf` `<active-response>` / `<command>` blocks. Until then,
    keep `dry_run: true` to log intended actions without executing them.
 
-> This PC (a Wazuh agent) can also forward its own alerts to the Oracle manager;
-> the middleware always reads the **manager's** aggregated `alerts.json`.
+> A Wazuh agent can also forward its own alerts to the manager; the middleware
+> always reads the **manager's** aggregated `alerts.json`.
 
 ## Project layout
 

@@ -13,7 +13,6 @@ Run from the project root:
 
 from __future__ import annotations
 
-import json
 import logging
 import sys
 from pathlib import Path
@@ -26,6 +25,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.config import load_config  # noqa: E402
 from src.rag_manager import QdrantRAGManager  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)-8s %(message)s")
@@ -37,11 +37,6 @@ CONFIG_PATH = PROJECT_ROOT / "config" / "app_config.json"
 # Documents shorter than this many characters are kept whole; longer paragraphs
 # are emitted as individual chunks.
 _MIN_CHUNK_CHARS = 40
-
-
-def load_config() -> dict:
-    with CONFIG_PATH.open("r", encoding="utf-8") as handle:
-        return json.load(handle)
 
 
 def chunk_text(text: str) -> List[str]:
@@ -67,7 +62,7 @@ def main() -> int:
         logger.error("Knowledge base directory not found: %s", KNOWLEDGE_DIR)
         return 1
 
-    config = load_config()
+    config = load_config(CONFIG_PATH)
     rag = QdrantRAGManager(
         qdrant_url=config["qdrant_url"],
         ollama_url=config["ollama_url"],

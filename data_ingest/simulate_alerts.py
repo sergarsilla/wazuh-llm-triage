@@ -19,17 +19,22 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import time
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.config import load_config  # noqa: E402
+
 CONFIG_PATH = PROJECT_ROOT / "config" / "app_config.json"
 SAMPLE_PATH = PROJECT_ROOT / "data_ingest" / "sample_alerts.jsonl"
 
 
 def load_alerts_path() -> Path:
-    with CONFIG_PATH.open("r", encoding="utf-8") as handle:
-        config = json.load(handle)
+    config = load_config(CONFIG_PATH)
     path = Path(config["wazuh_alerts_path"])
     if not path.is_absolute():
         path = PROJECT_ROOT / path
