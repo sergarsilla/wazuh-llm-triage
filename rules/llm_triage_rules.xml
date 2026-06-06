@@ -9,7 +9,7 @@
 
   Two-level design: a raw anomaly (e.g. rule 100100 from the anomaly detector) is
   only a low "review" signal. The escalation to a high, e-mailing level happens
-  HERE and only when the LLM confirms the threat (veredicto MALICIOSO). The
+  HERE and only when the LLM confirms the threat (verdict MALICIOUS). The
   false-positive verdict is kept at a low level so it is visible in the dashboard
   but never e-mails.
 -->
@@ -19,16 +19,16 @@
        email_alert_level, triggers the existing e-mail notification. -->
   <rule id="100110" level="14">
     <decoded_as>json</decoded_as>
-    <field name="llm_triage.veredicto">^MALICIOSO$</field>
-    <description>LLM triage CONFIRMED THREAT on agent $(llm_triage.agent_id) - risk $(llm_triage.nivel_riesgo): $(llm_triage.justificacion)</description>
+    <field name="llm_triage.verdict">^MALICIOUS$</field>
+    <description>LLM triage CONFIRMED THREAT on agent $(llm_triage.agent_id) - risk $(llm_triage.risk_level): $(llm_triage.justification)</description>
     <group>llm_triage_verdict,llm_triage_malicious,gdpr_IV_35.7.d,</group>
   </rule>
 
   <!-- Dismissed as false positive: low level, logged and visible but silent. -->
   <rule id="100111" level="3">
     <decoded_as>json</decoded_as>
-    <field name="llm_triage.veredicto">^FALSO_POSITIVO$</field>
-    <description>LLM triage dismissed as false positive on agent $(llm_triage.agent_id): $(llm_triage.justificacion)</description>
+    <field name="llm_triage.verdict">^FALSE_POSITIVE$</field>
+    <description>LLM triage dismissed as false positive on agent $(llm_triage.agent_id): $(llm_triage.justification)</description>
     <group>llm_triage_verdict,llm_triage_false_positive,</group>
   </rule>
 

@@ -9,7 +9,7 @@ expects datagrams of the form ``<queue>:<location>:<json>``; we use queue id
 
 This realises the two-level design: the raw anomaly stays a low "review" signal
 and the escalation to a high, e-mailing level happens only when the LLM verdict
-is ``MALICIOSO``. Socket failures (manager down, wrong path, permissions) are
+is ``MALICIOUS``. Socket failures (manager down, wrong path, permissions) are
 caught and reported as ``False`` so a transient problem never crashes the
 triage pipeline.
 """
@@ -42,33 +42,33 @@ class WazuhVerdictInjector:
     def send_verdict(
         self,
         *,
-        veredicto: str,
-        nivel_riesgo: str,
-        requiere_respuesta: bool,
+        verdict: str,
+        risk_level: str,
+        requires_response: bool,
         agent_id: str,
         rule_id: str,
-        justificacion: str = "",
+        justification: str = "",
         correlation_id: str = "",
     ) -> bool:
         """Inject a single verdict alert. Returns True on success, False on error.
 
         Args:
-            veredicto: ``"MALICIOSO"`` or ``"FALSO_POSITIVO"`` (drives the rule).
-            nivel_riesgo: LLM risk level (BAJO/MEDIO/ALTO/CRITICO), for context.
-            requiere_respuesta: Whether the LLM deemed active response warranted.
+            verdict: ``"MALICIOUS"`` or ``"FALSE_POSITIVE"`` (drives the rule).
+            risk_level: LLM risk level (LOW/MEDIUM/HIGH/CRITICAL), for context.
+            requires_response: Whether the LLM deemed active response warranted.
             agent_id: The affected Wazuh agent id.
             rule_id: The id of the original alert that was triaged.
-            justificacion: The LLM's technical justification (truncated).
+            justification: The LLM's technical justification (truncated).
             correlation_id: The id of the original alert, for cross-reference.
         """
         payload = {
             VERDICT_LOCATION: {
-                "veredicto": veredicto,
-                "nivel_riesgo": nivel_riesgo,
-                "requiere_respuesta": bool(requiere_respuesta),
+                "verdict": verdict,
+                "risk_level": risk_level,
+                "requires_response": bool(requires_response),
                 "agent_id": agent_id,
                 "rule_id": rule_id,
-                "justificacion": justificacion[:_MAX_JUSTIFICATION_LEN],
+                "justification": justification[:_MAX_JUSTIFICATION_LEN],
                 "correlation_id": correlation_id,
             }
         }

@@ -98,32 +98,32 @@ def _process_alert(
     verdict = llm.analyze_incident(alert, context)
 
     logger.info(
-        "Verdict: falso_positivo=%s riesgo=%s respuesta_activa=%s | %s",
-        verdict["falso_positivo"],
-        verdict["nivel_riesgo_real"],
-        verdict["requiere_respuesta_activa"],
-        verdict["justificacion_tecnica"],
+        "Verdict: false_positive=%s risk=%s active_response=%s | %s",
+        verdict["false_positive"],
+        verdict["real_risk_level"],
+        verdict["requires_active_response"],
+        verdict["technical_justification"],
     )
 
     # Two-level escalation: write the verdict back into Wazuh so it surfaces in
     # the dashboard and the malicious-verdict rule (not the raw anomaly) drives
     # escalation/e-mail.
     if verdict_injector is not None:
-        veredicto = "FALSO_POSITIVO" if verdict["falso_positivo"] else "MALICIOSO"
+        classification = "FALSE_POSITIVE" if verdict["false_positive"] else "MALICIOUS"
         verdict_injector.send_verdict(
-            veredicto=veredicto,
-            nivel_riesgo=verdict["nivel_riesgo_real"],
-            requiere_respuesta=verdict["requiere_respuesta_activa"],
+            verdict=classification,
+            risk_level=verdict["real_risk_level"],
+            requires_response=verdict["requires_active_response"],
             agent_id=_agent_id_of(alert),
             rule_id=str(rule.get("id", "")),
-            justificacion=verdict["justificacion_tecnica"],
+            justification=verdict["technical_justification"],
             correlation_id=str(alert.get("id", "")),
         )
 
-    if verdict["requiere_respuesta_activa"] and not verdict["falso_positivo"]:
+    if verdict["requires_active_response"] and not verdict["false_positive"]:
         # The LLM's free-text suggestion is advisory only and is never executed;
         # we dispatch a fixed, allowlisted containment command instead.
-        suggested = verdict["comando_mitigacion_sugerido"]
+        suggested = verdict["suggested_mitigation_command"]
         if suggested:
             logger.info("LLM suggested mitigation (advisory, not executed): %s", suggested)
         responder.trigger_active_response(
