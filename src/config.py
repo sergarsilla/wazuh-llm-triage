@@ -1,16 +1,10 @@
-"""Central configuration loader with environment-variable expansion.
+"""Configuration loader with ``${VAR:-default}`` environment expansion.
 
-Deployment-specific values (inference endpoints, log paths, API credentials)
-must never be baked into the committed configuration: this repository may be
-public, and hardcoding a private IP or a secret would leak it. Instead,
-``config/app_config.json`` uses ``${VAR:-default}`` placeholders that are
-resolved at load time from the process environment, falling back to a safe
-local-development default when the variable is unset.
-
-This keeps real infrastructure addresses and secrets out of the repo while the
-defaults still let the pipeline run out-of-the-box in local simulation. Set the
-real values via environment variables (shell ``export``, a gitignored ``.env``
-sourced into the shell, or a systemd ``EnvironmentFile=``); see ``.env.example``.
+Deployment-specific values (endpoints, paths, credentials) are kept out of the
+committed config: ``config/app_config.json`` holds only ``${VAR:-default}``
+placeholders, resolved from the environment at load time with safe local-dev
+defaults. Set real values via env vars or a gitignored ``.env`` (see
+``.env.example``).
 """
 
 from __future__ import annotations

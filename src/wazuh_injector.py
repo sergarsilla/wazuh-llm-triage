@@ -1,17 +1,10 @@
 """Re-inject triage verdicts into Wazuh via the manager's queue socket.
 
-After the LLM triages an alert, the verdict is written back into Wazuh as a
-normal alert so it shows up in the dashboard and can drive escalation /
-notification rules (see ``rules/llm_triage_rules.xml``). Wazuh's queue protocol
-expects datagrams of the form ``<queue>:<location>:<json>``; we use queue id
-``1`` and the ``llm_triage`` location, so the decoded payload lands under
-``data.llm_triage`` in the resulting alert.
-
-This realises the two-level design: the raw anomaly stays a low "review" signal
-and the escalation to a high, e-mailing level happens only when the LLM verdict
-is ``MALICIOUS``. Socket failures (manager down, wrong path, permissions) are
-caught and reported as ``False`` so a transient problem never crashes the
-triage pipeline.
+The verdict is written back as a normal alert using Wazuh's queue protocol
+(``<queue>:<location>:<json>``, here queue ``1`` and location ``llm_triage``), so
+it appears in the dashboard under ``data.llm_triage`` and its rules can escalate
+it. Socket errors are reported as ``False`` so a transient failure never crashes
+the pipeline.
 """
 
 from __future__ import annotations

@@ -1,17 +1,9 @@
-"""Shared identifiers for the verdict alerts this middleware re-injects into Wazuh.
+"""Identifiers for the verdict alerts this middleware re-injects into Wazuh.
 
-After triaging an alert, the pipeline writes its verdict back into Wazuh as a
-normal alert (see ``wazuh_injector``) so it appears in the dashboard and can
-drive escalation/notification rules. Those re-injected verdicts must be
-recognised consistently in three places that would otherwise drift apart:
-
-* the injector that writes them (``src/wazuh_injector.py``),
-* the manager-side rules that score them (``rules/llm_triage_rules.xml``),
-* the ingester that must NOT re-triage them (``src/ingester.py``), since a
-  verdict re-enters ``alerts.json`` at a high ``rule.level`` and would otherwise
-  be triaged again in an endless loop.
-
-Single-sourcing the contract here keeps those three in sync.
+Single-sourced here so the injector (``wazuh_injector``), the manager-side rules
+(``rules/llm_triage_rules.xml``) and the ingester's self-skip stay in sync. The
+ingester must never re-triage a verdict: it re-enters ``alerts.json`` at a high
+``rule.level`` and would otherwise loop forever.
 """
 
 from __future__ import annotations

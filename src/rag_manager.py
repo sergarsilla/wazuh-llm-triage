@@ -103,11 +103,9 @@ class QdrantRAGManager:
     def _build_search_query(alert_data: Dict[str, Any]) -> str:
         """Flatten the salient Wazuh alert fields into one search string.
 
-        Handles both standard Wazuh alerts and enriched anomaly-detector alerts,
-        whose operational context (user, process, command) lives under
-        ``data.anomaly_detector`` instead of the usual top-level fields. Without
-        this, an anomaly alert would only contribute its rule description and
-        the retrieval would miss host/admin context entirely.
+        Also handles anomaly-detector alerts, whose context (user, process,
+        command) lives under ``data.anomaly_detector`` rather than the usual
+        top-level fields.
         """
         rule = alert_data.get("rule") or {}
         data = alert_data.get("data") or {}
@@ -116,14 +114,13 @@ class QdrantRAGManager:
 
         parts: List[str] = []
 
-        # Host: for injected anomaly alerts the top-level agent is the manager,
-        # so prefer the affected host carried inside the anomaly payload.
+        # Injected anomaly alerts carry the manager as top-level agent; prefer
+        # the affected host from the payload.
         host = anomaly.get("agent_name") or agent.get("name")
         if host:
             parts.append(f"Host: {host}")
 
-        # Anomaly-detector enrichment carries the behavioural signal an analyst
-        # needs to decide whether routine admin activity is a false positive.
+        # Enrichment fields (user/process/command) carry the behavioural signal.
         if anomaly:
             parts.append("Anomalous administrative command flagged by ML detector")
             if anomaly.get("user"):
