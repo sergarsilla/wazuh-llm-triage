@@ -46,14 +46,19 @@ def chunk_text(text: str) -> List[str]:
 
 
 def collect_documents() -> List[tuple[str, str]]:
-    """Return ``(source_filename, chunk_text)`` pairs for the knowledge base."""
+    """Return ``(source, chunk_text)`` pairs for the knowledge base.
+
+    Recurses into subdirectories so a gitignored ``local/`` folder can hold the
+    deployer's real environment notes without committing them.
+    """
     documents: List[tuple[str, str]] = []
-    for path in sorted(KNOWLEDGE_DIR.glob("*")):
+    for path in sorted(KNOWLEDGE_DIR.rglob("*")):
         if path.suffix.lower() not in {".txt", ".md"}:
             continue
         text = path.read_text(encoding="utf-8")
+        source = str(path.relative_to(KNOWLEDGE_DIR))
         for chunk in chunk_text(text):
-            documents.append((path.name, chunk))
+            documents.append((source, chunk))
     return documents
 
 

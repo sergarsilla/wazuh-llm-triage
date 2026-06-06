@@ -223,3 +223,6 @@ __marimo__/
 
 # Project runtime artifacts
 data_ingest/live_alerts.json
+
+# Deployer's real environment knowledge base (never commit private infra notes)
+data_ingest/knowledge_base/local/
