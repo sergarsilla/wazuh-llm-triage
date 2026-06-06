@@ -14,6 +14,11 @@
   "rag_top_k": 5,
   "request_timeout_seconds": 120,
 
+  "verdict_injection": {
+    "enabled": false,
+    "socket_path": "${WAZUH_SOCKET_PATH:-/var/ossec/queue/sockets/queue}"
+  },
+
   "responder": {
     "dry_run": true,
     "kill_switch_file": "${KILL_SWITCH_FILE:-/var/ossec/.llm_triage_KILL}",

@@ -27,6 +27,7 @@ from .ingester import watch_alerts
 from .llm_client import OllamaSOCClient
 from .rag_manager import QdrantRAGManager
 from .responder import WazuhResponder
+from .wazuh_injector import WazuhVerdictInjector
 
 logger = logging.getLogger(__name__)
 
@@ -84,8 +85,9 @@ def _process_alert(
     rag: QdrantRAGManager,
     llm: OllamaSOCClient,
     responder: WazuhResponder,
+    verdict_injector: "WazuhVerdictInjector | None" = None,
 ) -> None:
-    """Run a single alert through RAG -> LLM -> Active Response."""
+    """Run a single alert through RAG -> LLM -> (verdict re-injection, Active Response)."""
     rule = alert.get("rule") or {}
     logger.info(
         "Triaging alert: rule.id=%s level=%s desc=%r agent=%s",
@@ -102,6 +104,21 @@ def _process_alert(
         verdict["requiere_respuesta_activa"],
         verdict["justificacion_tecnica"],
     )
+
+    # Two-level escalation: write the verdict back into Wazuh so it surfaces in
+    # the dashboard and the malicious-verdict rule (not the raw anomaly) drives
+    # escalation/e-mail.
+    if verdict_injector is not None:
+        veredicto = "FALSO_POSITIVO" if verdict["falso_positivo"] else "MALICIOSO"
+        verdict_injector.send_verdict(
+            veredicto=veredicto,
+            nivel_riesgo=verdict["nivel_riesgo_real"],
+            requiere_respuesta=verdict["requiere_respuesta_activa"],
+            agent_id=_agent_id_of(alert),
+            rule_id=str(rule.get("id", "")),
+            justificacion=verdict["justificacion_tecnica"],
+            correlation_id=str(alert.get("id", "")),
+        )
 
     if verdict["requiere_respuesta_activa"] and not verdict["falso_positivo"]:
         # The LLM's free-text suggestion is advisory only and is never executed;
@@ -140,6 +157,14 @@ def start_soc_pipeline(config_path: str = "config/app_config.json") -> None:
         timeout=timeout,
     )
 
+    vi_cfg = config.get("verdict_injection", {})
+    verdict_injector: "WazuhVerdictInjector | None" = None
+    if vi_cfg.get("enabled"):
+        verdict_injector = WazuhVerdictInjector(
+            vi_cfg.get("socket_path", "/var/ossec/queue/sockets/queue")
+        )
+        logger.info("Verdict re-injection enabled (socket: %s)", verdict_injector.socket_path)
+
     responder_cfg = config.get("responder", {})
     responder = WazuhResponder(
         dry_run=bool(responder_cfg.get("dry_run", True)),
@@ -174,7 +199,7 @@ def start_soc_pipeline(config_path: str = "config/app_config.json") -> None:
                 logger.info("Shutdown sentinel received; stopping consumer")
                 break
             try:
-                _process_alert(item, rag, llm, responder)
+                _process_alert(item, rag, llm, responder, verdict_injector)
             except Exception:  # noqa: BLE001 - one bad alert must not kill the loop
                 logger.exception("Failed to process alert; continuing")
             finally:
