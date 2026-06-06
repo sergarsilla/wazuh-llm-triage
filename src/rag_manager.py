@@ -25,6 +25,10 @@ logger = logging.getLogger(__name__)
 # Fixed embedding dimensionality mandated by the architecture contract.
 EMBEDDING_DIM = 384
 
+# Upper bound on the (attacker-influenced) anomaly command text folded into the
+# embedding search string, so a pathological log line cannot dominate retrieval.
+_MAX_COMMAND_CHARS = 256
+
 
 class QdrantRAGManager:
     """Generates embeddings via Ollama and retrieves context from Qdrant."""
@@ -97,14 +101,39 @@ class QdrantRAGManager:
     # ------------------------------------------------------------------ #
     @staticmethod
     def _build_search_query(alert_data: Dict[str, Any]) -> str:
-        """Flatten the salient Wazuh alert fields into one search string."""
+        """Flatten the salient Wazuh alert fields into one search string.
+
+        Handles both standard Wazuh alerts and enriched anomaly-detector alerts,
+        whose operational context (user, process, command) lives under
+        ``data.anomaly_detector`` instead of the usual top-level fields. Without
+        this, an anomaly alert would only contribute its rule description and
+        the retrieval would miss host/admin context entirely.
+        """
         rule = alert_data.get("rule") or {}
         data = alert_data.get("data") or {}
         agent = alert_data.get("agent") or {}
+        anomaly = data.get("anomaly_detector") or {}
 
         parts: List[str] = []
-        if agent.get("name"):
-            parts.append(f"Host: {agent['name']}")
+
+        # Host: for injected anomaly alerts the top-level agent is the manager,
+        # so prefer the affected host carried inside the anomaly payload.
+        host = anomaly.get("agent_name") or agent.get("name")
+        if host:
+            parts.append(f"Host: {host}")
+
+        # Anomaly-detector enrichment carries the behavioural signal an analyst
+        # needs to decide whether routine admin activity is a false positive.
+        if anomaly:
+            parts.append("Anomalous administrative command flagged by ML detector")
+            if anomaly.get("user"):
+                parts.append(f"User: {anomaly['user']}")
+            if anomaly.get("process_name"):
+                parts.append(f"Process: {anomaly['process_name']}")
+            if anomaly.get("command"):
+                command = str(anomaly["command"])[:_MAX_COMMAND_CHARS]
+                parts.append(f"Command: {command}")
+
         # Wazuh stores the source IP either at data.srcip or at the top level.
         src_ip = data.get("srcip") or alert_data.get("srcip")
         if src_ip:
