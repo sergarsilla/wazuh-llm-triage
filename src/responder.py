@@ -5,12 +5,24 @@ default it runs in **dry-run** mode: the intended command is logged but never
 executed, which is the safe choice while validating the pipeline. When
 ``dry_run`` is disabled it drives the Wazuh Manager REST API
 (``PUT /active-response``) to dispatch the command to the target agent.
+
+Two safety controls gate every dispatch, so even with ``dry_run`` disabled the
+blast radius stays bounded:
+
+* **Allowlist** — only command names explicitly listed in ``command_allowlist``
+  may ever be dispatched. Anything else (including any free-form text from the
+  LLM) is refused. The LLM's suggested command is advisory only and is never
+  executed verbatim.
+* **Kill-switch** — if ``kill_switch_file`` exists on disk, every dispatch is
+  suppressed regardless of mode. ``touch``-ing that file is an instant global
+  off-switch for automated response.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import List, Optional
+import os
+from typing import Iterable, List, Optional
 
 import requests
 
@@ -18,12 +30,15 @@ logger = logging.getLogger(__name__)
 
 
 class WazuhResponder:
-    """Triggers Wazuh Active Response, with a non-destructive dry-run mode."""
+    """Triggers Wazuh Active Response, with dry-run, an allowlist and a kill-switch."""
 
     def __init__(
         self,
         *,
         dry_run: bool = True,
+        command_allowlist: Optional[Iterable[str]] = None,
+        kill_switch_file: Optional[str] = None,
+        default_command: str = "firewall-drop",
         wazuh_api_url: Optional[str] = None,
         wazuh_api_user: Optional[str] = None,
         wazuh_api_password: Optional[str] = None,
@@ -31,6 +46,10 @@ class WazuhResponder:
         timeout: int = 30,
     ) -> None:
         self.dry_run = dry_run
+        # Empty allowlist => deny every dispatch (safe default).
+        self.command_allowlist = set(command_allowlist or [])
+        self.kill_switch_file = kill_switch_file or None
+        self.default_command = default_command
         self.wazuh_api_url = wazuh_api_url.rstrip("/") if wazuh_api_url else None
         self.wazuh_api_user = wazuh_api_user
         self.wazuh_api_password = wazuh_api_password
@@ -39,24 +58,45 @@ class WazuhResponder:
         # Cached JWT bearer token for the Wazuh API (lazily obtained).
         self._token: Optional[str] = None
 
+    def _kill_switch_engaged(self) -> bool:
+        """Return True if the kill-switch file is present (forces a no-op)."""
+        return bool(self.kill_switch_file) and os.path.exists(self.kill_switch_file)
+
     def trigger_active_response(self, agent_id: str, command: str, arguments: List[str]) -> bool:
         """Dispatch an active-response ``command`` to ``agent_id``.
 
         Args:
             agent_id: Target Wazuh agent id (e.g. ``"001"``).
-            command: Active-response command name configured on the manager
-                (e.g. ``"firewall-drop"``), or a free-form suggested command in
-                dry-run mode.
+            command: Active-response command **name** configured on the manager
+                (e.g. ``"firewall-drop"``). Must be present in the allowlist.
             arguments: Extra arguments forwarded to the command.
 
         Returns:
-            True if the order was dispatched (or logged in dry-run) successfully,
-            False on failure.
+            True only if the order was actually dispatched (or logged in
+            dry-run). False if it was refused (kill-switch, not allowlisted,
+            misconfiguration) or the API call failed.
         """
         printable = f"agent={agent_id} command={command!r} args={arguments}"
 
+        # Global kill-switch: presence of the file suppresses everything, even
+        # in real mode. Checked first so nothing can slip past it.
+        if self._kill_switch_engaged():
+            logger.warning(
+                "[KILL-SWITCH active: %s] Active Response suppressed -> %s",
+                self.kill_switch_file, printable,
+            )
+            return False
+
+        # Allowlist: only explicitly permitted command names may be dispatched.
+        if command not in self.command_allowlist:
+            logger.error(
+                "Active Response command %r not in allowlist %s; refusing -> %s",
+                command, sorted(self.command_allowlist), printable,
+            )
+            return False
+
         if self.dry_run:
-            logger.warning("[DRY-RUN] Active Response NOT executed -> %s", printable)
+            logger.warning("[DRY-RUN] Active Response NOT executed (allowed) -> %s", printable)
             return True
 
         if not self.wazuh_api_url:

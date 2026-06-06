@@ -43,7 +43,17 @@ def _setup_logging() -> None:
 
 
 def _agent_id_of(alert: Dict[str, Any]) -> str:
-    """Best-effort extraction of the Wazuh agent id from an alert."""
+    """Best-effort extraction of the *affected* Wazuh agent id from an alert.
+
+    For anomaly-detector alerts the top-level ``agent`` is the manager (the
+    detector injected the event with location ``anomaly_detector``), so the real
+    target host lives in ``data.anomaly_detector.agent_id``. Prefer that when
+    present, otherwise fall back to the standard top-level agent id.
+    """
+    data = alert.get("data") or {}
+    anomaly = data.get("anomaly_detector") or {}
+    if anomaly.get("agent_id"):
+        return str(anomaly["agent_id"])
     agent = alert.get("agent") or {}
     return str(agent.get("id", "000"))
 
@@ -94,10 +104,14 @@ def _process_alert(
     )
 
     if verdict["requiere_respuesta_activa"] and not verdict["falso_positivo"]:
-        command = verdict["comando_mitigacion_sugerido"] or "firewall-drop"
+        # The LLM's free-text suggestion is advisory only and is never executed;
+        # we dispatch a fixed, allowlisted containment command instead.
+        suggested = verdict["comando_mitigacion_sugerido"]
+        if suggested:
+            logger.info("LLM suggested mitigation (advisory, not executed): %s", suggested)
         responder.trigger_active_response(
             agent_id=_agent_id_of(alert),
-            command=command,
+            command=responder.default_command,
             arguments=[],
         )
 
@@ -129,6 +143,9 @@ def start_soc_pipeline(config_path: str = "config/app_config.json") -> None:
     responder_cfg = config.get("responder", {})
     responder = WazuhResponder(
         dry_run=bool(responder_cfg.get("dry_run", True)),
+        command_allowlist=responder_cfg.get("command_allowlist", []),
+        kill_switch_file=responder_cfg.get("kill_switch_file") or None,
+        default_command=responder_cfg.get("default_command", "firewall-drop"),
         wazuh_api_url=responder_cfg.get("wazuh_api_url"),
         wazuh_api_user=responder_cfg.get("wazuh_api_user"),
         wazuh_api_password=responder_cfg.get("wazuh_api_password"),

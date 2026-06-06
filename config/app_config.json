@@ -16,6 +16,9 @@
 
   "responder": {
     "dry_run": true,
+    "kill_switch_file": "${KILL_SWITCH_FILE:-/var/ossec/.llm_triage_KILL}",
+    "command_allowlist": ["firewall-drop"],
+    "default_command": "firewall-drop",
     "wazuh_api_url": "${WAZUH_API_URL:-https://localhost:55000}",
     "wazuh_api_user": "${WAZUH_API_USER:-wazuh-wui}",
     "wazuh_api_password": "${WAZUH_API_PASSWORD:-}",
