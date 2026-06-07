@@ -104,6 +104,21 @@ def _ingest_loop(
         work_queue.put(_SHUTDOWN)
 
 
+def _classify(verdict: Dict[str, Any]) -> str:
+    """Map an LLM verdict to an escalation category.
+
+    Trust the LLM's risk level over its (sometimes inconsistent) false_positive
+    flag: only HIGH/CRITICAL real threats e-mail (MALICIOUS); MEDIUM is a
+    dashboard-only review signal (SUSPICIOUS); LOW or an explicit false positive
+    is dismissed silently (FALSE_POSITIVE).
+    """
+    if verdict["false_positive"] or verdict["real_risk_level"] == "LOW":
+        return "FALSE_POSITIVE"
+    if verdict["real_risk_level"] == "MEDIUM":
+        return "SUSPICIOUS"
+    return "MALICIOUS"
+
+
 def _process_alert(
     alert: Dict[str, Any],
     rag: QdrantRAGManager,
@@ -129,22 +144,29 @@ def _process_alert(
         verdict["technical_justification"],
     )
 
-    # Two-level escalation: write the verdict back into Wazuh so it surfaces in
-    # the dashboard and the malicious-verdict rule (not the raw anomaly) drives
-    # escalation/e-mail.
+    # Graduated escalation: re-inject the verdict so it surfaces in the dashboard.
+    # Only a confirmed HIGH/CRITICAL threat e-mails; MEDIUM is a silent review
+    # signal; LOW / false positive is dismissed.
+    classification = _classify(verdict)
+    anomaly = (alert.get("data") or {}).get("anomaly_detector") or {}
+
     if verdict_injector is not None:
-        classification = "FALSE_POSITIVE" if verdict["false_positive"] else "MALICIOUS"
         verdict_injector.send_verdict(
             verdict=classification,
             risk_level=verdict["real_risk_level"],
             requires_response=verdict["requires_active_response"],
             agent_id=_agent_id_of(alert),
             rule_id=str(rule.get("id", "")),
+            user=str(anomaly.get("user", "")),
+            process=str(anomaly.get("process_name", "")),
+            command=str(anomaly.get("command", "")),
+            anomaly_score=str(anomaly.get("anomaly_score", "")),
             justification=verdict["technical_justification"],
             correlation_id=str(alert.get("id", "")),
         )
 
-    if verdict["requires_active_response"] and not verdict["false_positive"]:
+    # Active response only for a confirmed (HIGH/CRITICAL) threat.
+    if classification == "MALICIOUS" and verdict["requires_active_response"]:
         # The LLM's free-text suggestion is advisory only and is never executed;
         # we dispatch a fixed, allowlisted containment command instead.
         suggested = verdict["suggested_mitigation_command"]

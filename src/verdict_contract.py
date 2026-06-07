@@ -13,4 +13,4 @@ from __future__ import annotations
 VERDICT_LOCATION = "llm_triage"
 
 # Manager-side rule ids that fire on a re-injected verdict (see the rules XML).
-VERDICT_RULE_IDS = frozenset({"100110", "100111"})
+VERDICT_RULE_IDS = frozenset({"100110", "100111", "100112"})
