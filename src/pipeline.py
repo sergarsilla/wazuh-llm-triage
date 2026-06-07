@@ -60,10 +60,26 @@ def _agent_id_of(alert: Dict[str, Any]) -> str:
 
 
 def _parse_groups(value: Any) -> "list[str] | None":
-    """Parse ``triage_rule_groups`` from a comma-separated string (or a list)."""
+    """Parse a comma-separated string (or a list) into a list, or None if empty."""
     items = value if isinstance(value, (list, tuple)) else str(value or "").split(",")
     groups = [str(item).strip() for item in items if str(item).strip()]
     return groups or None
+
+
+def _as_bool(value: Any, *, default: bool) -> bool:
+    """Coerce an env-expanded string (or bool) to a bool; unknown -> ``default``.
+
+    Used for safety-relevant toggles, so ``dry_run`` can default to True and only
+    an explicit false-ish value ever enables real active response.
+    """
+    if isinstance(value, bool):
+        return value
+    text = str(value if value is not None else "").strip().lower()
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off"}:
+        return False
+    return default
 
 
 def _ingest_loop(
@@ -167,7 +183,7 @@ def start_soc_pipeline(config_path: str = "config/app_config.json") -> None:
 
     vi_cfg = config.get("verdict_injection", {})
     verdict_injector: "WazuhVerdictInjector | None" = None
-    if vi_cfg.get("enabled"):
+    if _as_bool(vi_cfg.get("enabled"), default=False):
         verdict_injector = WazuhVerdictInjector(
             vi_cfg.get("socket_path", "/var/ossec/queue/sockets/queue")
         )
@@ -175,14 +191,14 @@ def start_soc_pipeline(config_path: str = "config/app_config.json") -> None:
 
     responder_cfg = config.get("responder", {})
     responder = WazuhResponder(
-        dry_run=bool(responder_cfg.get("dry_run", True)),
-        command_allowlist=responder_cfg.get("command_allowlist", []),
+        dry_run=_as_bool(responder_cfg.get("dry_run"), default=True),
+        command_allowlist=_parse_groups(responder_cfg.get("command_allowlist")),
         kill_switch_file=responder_cfg.get("kill_switch_file") or None,
         default_command=responder_cfg.get("default_command", "firewall-drop"),
         wazuh_api_url=responder_cfg.get("wazuh_api_url"),
         wazuh_api_user=responder_cfg.get("wazuh_api_user"),
         wazuh_api_password=responder_cfg.get("wazuh_api_password"),
-        verify_ssl=bool(responder_cfg.get("verify_ssl", False)),
+        verify_ssl=_as_bool(responder_cfg.get("verify_ssl"), default=False),
     )
 
     work_queue: "queue.Queue[Any]" = queue.Queue()

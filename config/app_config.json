@@ -10,24 +10,24 @@
   "embedding_dim": 384,
   "llm_model_name": "${LLM_MODEL_NAME:-qwen2.5:3b-instruct-q4_K_M}",
 
-  "min_alert_level": 7,
+  "min_alert_level": "${MIN_ALERT_LEVEL:-7}",
   "triage_rule_groups": "${TRIAGE_RULE_GROUPS:-}",
-  "rag_top_k": 5,
-  "request_timeout_seconds": 120,
+  "rag_top_k": "${RAG_TOP_K:-5}",
+  "request_timeout_seconds": "${REQUEST_TIMEOUT_SECONDS:-120}",
 
   "verdict_injection": {
-    "enabled": false,
+    "enabled": "${VERDICT_INJECTION_ENABLED:-false}",
     "socket_path": "${WAZUH_SOCKET_PATH:-/var/ossec/queue/sockets/queue}"
   },
 
   "responder": {
-    "dry_run": true,
+    "dry_run": "${RESPONDER_DRY_RUN:-true}",
     "kill_switch_file": "${KILL_SWITCH_FILE:-/var/ossec/.llm_triage_KILL}",
-    "command_allowlist": ["firewall-drop"],
-    "default_command": "firewall-drop",
+    "command_allowlist": "${RESPONDER_COMMAND_ALLOWLIST:-firewall-drop}",
+    "default_command": "${RESPONDER_DEFAULT_COMMAND:-firewall-drop}",
     "wazuh_api_url": "${WAZUH_API_URL:-https://localhost:55000}",
     "wazuh_api_user": "${WAZUH_API_USER:-wazuh-wui}",
     "wazuh_api_password": "${WAZUH_API_PASSWORD:-}",
-    "verify_ssl": false
+    "verify_ssl": "${WAZUH_VERIFY_SSL:-false}"
   }
 }

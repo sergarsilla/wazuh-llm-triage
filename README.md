@@ -137,11 +137,16 @@ only `${VAR:-default}` placeholders; override them via a gitignored `.env`
 | `WAZUH_SOCKET_PATH` | Queue socket for verdict re-injection | `/var/ossec/queue/sockets/queue` |
 | `WAZUH_API_URL` / `_USER` / `_PASSWORD` | Wazuh API (real Active Response only) | — |
 | `KILL_SWITCH_FILE` | If this file exists, all Active Response is suppressed | `/var/ossec/.llm_triage_KILL` |
+| `MIN_ALERT_LEVEL` | Minimum `rule.level` to triage | `7` |
 | `TRIAGE_RULE_GROUPS` | Restrict triage to these `rule.groups` (comma-separated; empty = all) | — (all) |
+| `VERDICT_INJECTION_ENABLED` | Re-inject verdicts into Wazuh (Phase 2+) | `false` |
+| `RESPONDER_DRY_RUN` | Real Active Response runs only when explicitly `false` | `true` |
+| `RESPONDER_COMMAND_ALLOWLIST` | Allowed command names (comma-separated) | `firewall-drop` |
 
-Behavioural toggles live in `config/app_config.json` (mounted into the
-container): `min_alert_level`, `rag_top_k`, `verdict_injection.enabled`, and the
-`responder` block (`dry_run`, `command_allowlist`, `default_command`).
+All operational settings are env-driven; `config/app_config.json` holds only
+`${VAR:-default}` placeholders, so you configure everything from `.env` and never
+edit the JSON. See `.env.example` for the full list (also `RAG_TOP_K`,
+`REQUEST_TIMEOUT_SECONDS`, `RESPONDER_DEFAULT_COMMAND`, `WAZUH_VERIFY_SSL`).
 
 ## 📚 Knowledge base
 
