@@ -137,11 +137,10 @@ only `${VAR:-default}` placeholders; override them via a gitignored `.env`
 | `WAZUH_SOCKET_PATH` | Queue socket for verdict re-injection | `/var/ossec/queue/sockets/queue` |
 | `WAZUH_API_URL` / `_USER` / `_PASSWORD` | Wazuh API (real Active Response only) | — |
 | `KILL_SWITCH_FILE` | If this file exists, all Active Response is suppressed | `/var/ossec/.llm_triage_KILL` |
+| `TRIAGE_RULE_GROUPS` | Restrict triage to these `rule.groups` (comma-separated; empty = all) | — (all) |
 
 Behavioural toggles live in `config/app_config.json` (mounted into the
-container): `min_alert_level`, `triage_rule_groups` (restrict triage to alerts
-whose `rule.groups` match one of these, e.g. `["anomaly_detector"]`; empty = all
-alerts above the threshold), `rag_top_k`, `verdict_injection.enabled`, and the
+container): `min_alert_level`, `rag_top_k`, `verdict_injection.enabled`, and the
 `responder` block (`dry_run`, `command_allowlist`, `default_command`).
 
 ## 📚 Knowledge base

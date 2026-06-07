@@ -59,6 +59,13 @@ def _agent_id_of(alert: Dict[str, Any]) -> str:
     return str(agent.get("id", "000"))
 
 
+def _parse_groups(value: Any) -> "list[str] | None":
+    """Parse ``triage_rule_groups`` from a comma-separated string (or a list)."""
+    items = value if isinstance(value, (list, tuple)) else str(value or "").split(",")
+    groups = [str(item).strip() for item in items if str(item).strip()]
+    return groups or None
+
+
 def _ingest_loop(
     config: Dict[str, Any],
     work_queue: "queue.Queue[Any]",
@@ -69,7 +76,7 @@ def _ingest_loop(
         for alert in watch_alerts(
             config["wazuh_alerts_path"],
             int(config["min_alert_level"]),
-            require_groups=config.get("triage_rule_groups") or None,
+            require_groups=_parse_groups(config.get("triage_rule_groups")),
             from_start=bool(config.get("read_from_start", False)),
         ):
             if stop_event.is_set():

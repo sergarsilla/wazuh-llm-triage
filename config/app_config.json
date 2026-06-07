@@ -11,7 +11,7 @@
   "llm_model_name": "${LLM_MODEL_NAME:-qwen2.5:3b-instruct-q4_K_M}",
 
   "min_alert_level": 7,
-  "triage_rule_groups": [],
+  "triage_rule_groups": "${TRIAGE_RULE_GROUPS:-}",
   "rag_top_k": 5,
   "request_timeout_seconds": 120,
 
