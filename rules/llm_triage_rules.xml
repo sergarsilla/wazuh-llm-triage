@@ -7,11 +7,12 @@
   /var/ossec/etc/rules/local_rules.xml (or referencing this file) and restarting
   wazuh-manager.
 
-  Two-level design: a raw anomaly (e.g. rule 100100 from the anomaly detector) is
-  only a low "review" signal. The escalation to a high, e-mailing level happens
-  HERE and only when the LLM confirms the threat (verdict MALICIOUS). The
-  false-positive verdict is kept at a low level so it is visible in the dashboard
-  but never e-mails.
+  Graduated escalation, driven by the LLM verdict (not the raw anomaly):
+    - MALICIOUS    (HIGH/CRITICAL real threat) -> level 14, e-mails.
+    - SUSPICIOUS   (MEDIUM, worth a look)      -> level 9, dashboard only.
+    - FALSE_POSITIVE (LOW / dismissed)         -> level 3, silent.
+  Set the manager's email_alert_level above 9 (e.g. 12) so only MALICIOUS mails.
+  Each rule carries the triggering user/command so the alert is actionable.
 -->
 <group name="llm_triage,">
 
@@ -20,15 +21,24 @@
   <rule id="100110" level="14">
     <decoded_as>json</decoded_as>
     <field name="llm_triage.verdict">^MALICIOUS$</field>
-    <description>LLM triage CONFIRMED THREAT on agent $(llm_triage.agent_id) - risk $(llm_triage.risk_level): $(llm_triage.justification)</description>
+    <description>LLM triage CONFIRMED THREAT on agent $(llm_triage.agent_id) user $(llm_triage.user) - risk $(llm_triage.risk_level) - cmd: $(llm_triage.command) :: $(llm_triage.justification)</description>
     <group>llm_triage_verdict,llm_triage_malicious,gdpr_IV_35.7.d,</group>
+  </rule>
+
+  <!-- Worth a review: mid level, visible in the dashboard but below the e-mail
+       threshold so it does not spam the analyst. -->
+  <rule id="100112" level="9">
+    <decoded_as>json</decoded_as>
+    <field name="llm_triage.verdict">^SUSPICIOUS$</field>
+    <description>LLM triage SUSPICIOUS (review) on agent $(llm_triage.agent_id) user $(llm_triage.user) - cmd: $(llm_triage.command) :: $(llm_triage.justification)</description>
+    <group>llm_triage_verdict,llm_triage_suspicious,</group>
   </rule>
 
   <!-- Dismissed as false positive: low level, logged and visible but silent. -->
   <rule id="100111" level="3">
     <decoded_as>json</decoded_as>
     <field name="llm_triage.verdict">^FALSE_POSITIVE$</field>
-    <description>LLM triage dismissed as false positive on agent $(llm_triage.agent_id): $(llm_triage.justification)</description>
+    <description>LLM triage dismissed as false positive on agent $(llm_triage.agent_id) user $(llm_triage.user) - cmd: $(llm_triage.command) :: $(llm_triage.justification)</description>
     <group>llm_triage_verdict,llm_triage_false_positive,</group>
   </rule>
 

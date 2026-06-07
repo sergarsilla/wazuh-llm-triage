@@ -21,9 +21,10 @@ logger = logging.getLogger(__name__)
 # Wazuh queue-message prefix: queue id "1" and our verdict location tag.
 _QUEUE_PREFIX = f"1:{VERDICT_LOCATION}:"
 
-# Cap on the embedded justification so a verdict cannot exceed Wazuh's
-# queue-message size limit.
+# Caps on embedded free-text so a verdict cannot exceed Wazuh's queue-message
+# size limit.
 _MAX_JUSTIFICATION_LEN = 1024
+_MAX_COMMAND_LEN = 512
 
 
 class WazuhVerdictInjector:
@@ -40,17 +41,23 @@ class WazuhVerdictInjector:
         requires_response: bool,
         agent_id: str,
         rule_id: str,
+        user: str = "",
+        process: str = "",
+        command: str = "",
+        anomaly_score: str = "",
         justification: str = "",
         correlation_id: str = "",
     ) -> bool:
         """Inject a single verdict alert. Returns True on success, False on error.
 
         Args:
-            verdict: ``"MALICIOUS"`` or ``"FALSE_POSITIVE"`` (drives the rule).
+            verdict: ``MALICIOUS`` / ``SUSPICIOUS`` / ``FALSE_POSITIVE`` (drives the rule).
             risk_level: LLM risk level (LOW/MEDIUM/HIGH/CRITICAL), for context.
             requires_response: Whether the LLM deemed active response warranted.
             agent_id: The affected Wazuh agent id.
             rule_id: The id of the original alert that was triaged.
+            user, process, command, anomaly_score: the triggering evidence carried
+                over from the original anomaly, so the verdict is actionable.
             justification: The LLM's technical justification (truncated).
             correlation_id: The id of the original alert, for cross-reference.
         """
@@ -61,6 +68,10 @@ class WazuhVerdictInjector:
                 "requires_response": bool(requires_response),
                 "agent_id": agent_id,
                 "rule_id": rule_id,
+                "user": user,
+                "process": process,
+                "command": str(command)[:_MAX_COMMAND_LEN],
+                "anomaly_score": anomaly_score,
                 "justification": justification[:_MAX_JUSTIFICATION_LEN],
                 "correlation_id": correlation_id,
             }
