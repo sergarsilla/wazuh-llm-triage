@@ -7,11 +7,13 @@ REMOTE=YOUR_MANAGER_HOST          # ssh host/alias of the Wazuh manager
 DEST=/opt/wazuh-llm-triage        # install path on the manager
 
 # Push code to the manager (rsync as root so it can write under /opt).
-# Excludes local junk and anything secret/host-specific: .env stays on the
-# server, the knowledge_base/local/ folder is synced so your private KB ships.
+# Excludes local junk and anything secret/host-specific: .env and the
+# server-tuned config/app_config.json stay on the server, while the
+# knowledge_base/local/ folder is synced so your private KB ships.
 rsync -avz --delete --rsync-path="sudo rsync" \
   --exclude '.git/' --exclude 'venv/' --exclude '.venv/' --exclude '__pycache__/' \
   --exclude '.pytest_cache/' --exclude '.claude/' --exclude '.env' \
+  --exclude 'config/app_config.json' \
   --exclude 'data_ingest/live_alerts.json' \
   ./ "$REMOTE:$DEST/"
 
