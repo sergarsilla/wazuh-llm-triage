@@ -13,7 +13,7 @@ import json
 import logging
 import os
 import time
-from typing import Any, Dict, Generator, Optional
+from typing import Any, Dict, Generator, Iterable, Optional
 
 from .verdict_contract import VERDICT_LOCATION, VERDICT_RULE_IDS
 
@@ -89,10 +89,26 @@ def _rotated(file_path: str, open_inode: int, current_offset: int) -> bool:
     return stat.st_ino != open_inode or stat.st_size < current_offset
 
 
+def _matches_required_groups(alert: Dict[str, Any], required: "frozenset[str]") -> bool:
+    """Return True if ``rule.groups`` intersects ``required`` (or it is empty).
+
+    Lets a deployment scope triage to specific alert sources (e.g. only the
+    anomaly detector) instead of every alert above the severity threshold.
+    """
+    if not required:
+        return True
+    rule = alert.get("rule")
+    groups = rule.get("groups") if isinstance(rule, dict) else None
+    if not isinstance(groups, (list, tuple)):
+        return False
+    return any(group in required for group in groups)
+
+
 def watch_alerts(
     file_path: str,
     min_level: int,
     *,
+    require_groups: Optional[Iterable[str]] = None,
     from_start: bool = False,
     poll_interval: float = _DEFAULT_POLL_INTERVAL,
 ) -> Generator[Dict[str, Any], None, None]:
@@ -101,14 +117,18 @@ def watch_alerts(
     Args:
         file_path: Path to the Wazuh ``alerts.json`` file.
         min_level: Minimum ``rule.level`` required for an alert to be yielded.
+        require_groups: If non-empty, only yield alerts whose ``rule.groups``
+            contains one of these (e.g. ``{"anomaly_detector"}``); otherwise
+            every alert above ``min_level`` is yielded.
         from_start: If True, replay existing lines before tailing; otherwise
             start at EOF and only emit newly appended alerts.
         poll_interval: Idle sleep, in seconds, between read attempts.
 
     Yields:
-        The deserialised alert dictionary for every line whose ``rule.level``
-        is greater than or equal to ``min_level``.
+        The deserialised alert dictionary for every line that passes the
+        severity and group filters.
     """
+    groups_filter = frozenset(require_groups or ())
     # Outer loop owns (re)opening the file across rotations and start-up gaps.
     while True:
         if not os.path.exists(file_path):
@@ -146,10 +166,11 @@ def watch_alerts(
                         continue
 
                     level = _extract_rule_level(alert)
-                    if level is None:
+                    if level is None or level < min_level:
                         continue
-                    if level >= min_level:
-                        yield alert
+                    if not _matches_required_groups(alert, groups_filter):
+                        continue
+                    yield alert
                     continue
 
                 # No new data: check for rotation, otherwise idle.

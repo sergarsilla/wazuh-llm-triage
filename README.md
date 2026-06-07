@@ -139,7 +139,9 @@ only `${VAR:-default}` placeholders; override them via a gitignored `.env`
 | `KILL_SWITCH_FILE` | If this file exists, all Active Response is suppressed | `/var/ossec/.llm_triage_KILL` |
 
 Behavioural toggles live in `config/app_config.json` (mounted into the
-container): `min_alert_level`, `rag_top_k`, `verdict_injection.enabled`, and the
+container): `min_alert_level`, `triage_rule_groups` (restrict triage to alerts
+whose `rule.groups` match one of these, e.g. `["anomaly_detector"]`; empty = all
+alerts above the threshold), `rag_top_k`, `verdict_injection.enabled`, and the
 `responder` block (`dry_run`, `command_allowlist`, `default_command`).
 
 ## 📚 Knowledge base

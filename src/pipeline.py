@@ -69,6 +69,7 @@ def _ingest_loop(
         for alert in watch_alerts(
             config["wazuh_alerts_path"],
             int(config["min_alert_level"]),
+            require_groups=config.get("triage_rule_groups") or None,
             from_start=bool(config.get("read_from_start", False)),
         ):
             if stop_event.is_set():
