@@ -37,6 +37,7 @@ itself or on any host with spare CPU/RAM reachable from it — **no GPU required
 - [Security model](#-security-model)
 - [Phased rollout](#-phased-rollout)
 - [Integration with the anomaly detector](#-integration-with-the-anomaly-detector)
+- [Troubleshooting](#-troubleshooting)
 
 ## 🧠 How it works
 
@@ -186,3 +187,26 @@ separate **wazuh-anomaly-detector** project, which carry enrichment under
 projects are decoupled and integrate only through that `alerts.json` contract.
 The detector flags *statistical rarity*, not malice; this layer's job is to use
 RAG context to dismiss routine admin activity and escalate only genuine threats.
+
+## 🛠️ Troubleshooting
+
+- **`No route to host` reaching Ollama/Qdrant from the manager.** When Ollama
+  runs as a host service (systemd) rather than in Docker, the inference host's
+  local firewall blocks its port even if the cloud security list already allows
+  it (e.g. OCI's default iptables ends with a `REJECT ... icmp-host-prohibited`
+  rule). Ollama must (a) listen on a routable address — set `OLLAMA_HOST=0.0.0.0`
+  via a systemd override and restart it — and (b) have its port opened in the
+  host firewall *before* that reject rule, scoped to the manager:
+  ```bash
+  sudo iptables -I INPUT 5 -p tcp -s <MANAGER_IP> --dport 11434 -j ACCEPT
+  sudo netfilter-persistent save
+  ```
+  Qdrant in Docker is reachable without this because Docker manages its own
+  firewall rules.
+- **`Retrieved 0 context fragment(s)`.** The knowledge base is not indexed (or
+  the triage started before it was). Always run `docker compose run --rm
+  populate` *before* `docker compose up -d triage`.
+- **Config changes have no effect.** The container reads `app_config.json` once
+  at startup. After editing it (e.g. enabling `verdict_injection`), recreate the
+  container — `docker compose up -d --force-recreate triage` — and confirm the
+  `Verdict re-injection enabled` log line.
