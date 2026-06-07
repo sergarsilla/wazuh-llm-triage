@@ -1,0 +1,25 @@
+EXAMPLE CORP ASSET INVENTORY (SIMULATED)
+
+web-prod-01 (Wazuh agent 001, IP 10.20.0.11)
+Public-facing NGINX web server hosting the corporate site. Exposed to the
+Internet on TCP 80/443 only. SSH (TCP 22) is reachable exclusively from the
+bastion host jump-01 (10.20.0.5); any SSH login attempt from a public IP is
+abnormal and must be treated as malicious. Criticality: HIGH.
+
+db-prod-01 (Wazuh agent 002, IP 10.20.0.21)
+Primary PostgreSQL database. This is a CROWN JEWEL holding customer PII. It has
+no inbound Internet access and accepts connections only from web-prod-01 and
+jump-01. Interactive root login on this host outside an approved change window
+is a critical indicator of compromise. Criticality: CRITICAL.
+
+jump-01 (Wazuh agent 003, IP 10.20.0.5)
+SSH bastion / jump host. It is the ONLY authorised entry point for
+administrative SSH access into the production segment. Administrators
+authenticate here with MFA before reaching internal hosts. Criticality: HIGH.
+
+vuln-scanner-01 (Wazuh agent 004, IP 10.20.0.250)
+Internal authorised vulnerability scanner (Nessus). It runs scheduled
+authenticated scans against the production segment every night between 01:00
+and 05:00 UTC. Web-attack, port-scan and brute-force signatures originating
+from 10.20.0.250 are EXPECTED and are almost always false positives.
+Criticality: LOW.

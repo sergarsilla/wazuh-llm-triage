@@ -1,0 +1,23 @@
+EXAMPLE CORP OPERATIONAL BASELINE (SIMULATED)
+
+Administrator accounts
+- On the application hosts (e.g. app-host-01, app-host-02) the default system
+  account "ubuntu" is the standard administrator. It routinely runs container
+  and service-management commands: docker, docker compose, systemctl, apt,
+  journalctl, grep, tail. Low-score anomalies involving these commands by the
+  "ubuntu" account are expected operational noise and are almost always false
+  positives.
+
+Routine maintenance
+- Package updates (apt update / apt upgrade) and container restarts during
+  business hours are normal administrative activity.
+
+Genuinely suspicious behaviour (NOT part of the baseline)
+- Downloading a script or binary from the Internet and piping it straight into a
+  shell (e.g. "curl ... | bash", "wget ... -O- | sh") is never routine
+  administration and must be treated as a real threat.
+- Spawning a reverse shell (e.g. "nc -e /bin/sh"), base64-decoding a payload
+  into an interpreter, or disabling security tooling indicates compromise
+  regardless of which account runs it.
+- Service accounts (e.g. www-data) running interactive shells or administrative
+  commands is abnormal and suspicious.

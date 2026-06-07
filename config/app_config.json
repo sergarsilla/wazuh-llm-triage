@@ -1,0 +1,33 @@
+{
+  "wazuh_alerts_path": "${WAZUH_ALERTS_PATH:-data_ingest/live_alerts.json}",
+  "read_from_start": false,
+
+  "qdrant_url": "${QDRANT_URL:-http://localhost:6333}",
+  "qdrant_collection": "${QDRANT_COLLECTION:-soc_knowledge}",
+
+  "ollama_url": "${OLLAMA_URL:-http://localhost:11434}",
+  "embedding_model_name": "${EMBEDDING_MODEL_NAME:-all-minilm}",
+  "embedding_dim": 384,
+  "llm_model_name": "${LLM_MODEL_NAME:-qwen2.5:3b-instruct-q4_K_M}",
+
+  "min_alert_level": 7,
+  "triage_rule_groups": "${TRIAGE_RULE_GROUPS:-}",
+  "rag_top_k": 5,
+  "request_timeout_seconds": 120,
+
+  "verdict_injection": {
+    "enabled": false,
+    "socket_path": "${WAZUH_SOCKET_PATH:-/var/ossec/queue/sockets/queue}"
+  },
+
+  "responder": {
+    "dry_run": true,
+    "kill_switch_file": "${KILL_SWITCH_FILE:-/var/ossec/.llm_triage_KILL}",
+    "command_allowlist": ["firewall-drop"],
+    "default_command": "firewall-drop",
+    "wazuh_api_url": "${WAZUH_API_URL:-https://localhost:55000}",
+    "wazuh_api_user": "${WAZUH_API_USER:-wazuh-wui}",
+    "wazuh_api_password": "${WAZUH_API_PASSWORD:-}",
+    "verify_ssl": false
+  }
+}

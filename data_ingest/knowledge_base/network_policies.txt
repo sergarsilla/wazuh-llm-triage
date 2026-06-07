@@ -1,0 +1,24 @@
+EXAMPLE CORP NETWORK & ACCESS POLICIES (SIMULATED)
+
+Production segment: 10.20.0.0/24. All hosts are monitored by Wazuh.
+
+SSH access policy
+- Administrative SSH is permitted ONLY from the bastion host jump-01
+  (10.20.0.5). Direct SSH from any other source, and especially from a public
+  Internet address, violates policy and indicates an attack.
+- Root SSH login is disabled on all hosts; access is via named accounts plus
+  sudo. Any "accepted password for root" event is therefore suspicious.
+
+Internet exposure policy
+- Only web-prod-01 (10.20.0.11) is published to the Internet (TCP 80/443).
+- db-prod-01 (10.20.0.21) must never receive inbound Internet traffic.
+
+Authorised scanning
+- vuln-scanner-01 (10.20.0.250) is whitelisted to perform vulnerability scans.
+  Alerts triggered by traffic sourced from 10.20.0.250 during the nightly
+  maintenance window (01:00-05:00 UTC) should be treated as authorised testing.
+
+External brute force
+- Repeated authentication failures from a single external IP against any
+  production host are to be contained by dropping the source IP at the host
+  firewall (active response: firewall-drop).

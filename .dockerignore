@@ -1,0 +1,10 @@
+.git/
+venv/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.claude/
+.env
+deploy.sh
+data_ingest/live_alerts.json

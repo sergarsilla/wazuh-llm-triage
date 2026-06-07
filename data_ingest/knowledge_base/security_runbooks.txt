@@ -1,0 +1,26 @@
+EXAMPLE CORP SOC RUNBOOKS (SIMULATED)
+
+Runbook: SSH brute force from external IP
+1. Confirm the source IP is not part of 10.20.0.0/24 and not the bastion
+   jump-01 (10.20.0.5).
+2. If failures exceed the rule threshold from a public IP, classify as a real
+   attack with HIGH/CRITICAL risk.
+3. Recommended containment: drop the offending source IP at the agent firewall
+   using the firewall-drop active response.
+
+Runbook: Suspicious privileged access on a crown-jewel host
+1. Any interactive or root login on db-prod-01 (10.20.0.21) that is not tied to
+   an approved change window is treated as CRITICAL.
+2. Recommended containment: isolate the session / block the source and escalate
+   immediately to the on-call incident responder.
+
+Runbook: Alerts from the internal vulnerability scanner
+1. If the source IP is 10.20.0.250 (vuln-scanner-01), correlate with the
+   nightly scan window.
+2. Authorised-scan alerts are false positives; suppress active response and
+   document them for the scan report.
+
+Active response catalogue
+- firewall-drop <ip>: temporarily blackhole an IP at the agent firewall.
+- restart-ossec: restart the agent (diagnostic only).
+- disable-account <user>: lock a compromised local account.

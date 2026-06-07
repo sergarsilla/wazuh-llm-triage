@@ -1,0 +1,12 @@
+# SOC-L1 Intelligent Triage Middleware — runtime dependencies
+# Target interpreter: Python 3.11+ (validated on 3.14.5)
+#
+# NOTE ON EMBEDDINGS:
+#   The architecture spec lists `sentence-transformers`, but embeddings are
+#   served by Ollama (model: all-minilm, 384 dims) over HTTP instead. This
+#   avoids pulling torch / sentence-transformers, which currently lack stable
+#   wheels for Python 3.14 and would break installation on this environment.
+#   The fixed 384-dimension contract is preserved (all-minilm == 384 dims).
+
+qdrant-client>=1.18,<2.0   # Vector DB client (Cosine similarity search)
+requests>=2.32             # HTTP client for the Ollama and Wazuh REST APIs

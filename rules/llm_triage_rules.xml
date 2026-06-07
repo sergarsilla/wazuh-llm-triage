@@ -1,0 +1,35 @@
+<!--
+  Custom Wazuh rules for the LLM triage verdict re-injection.
+
+  The triage middleware writes its verdict back into the manager's queue socket
+  with location "llm_triage" and a JSON body under the "llm_triage" object
+  (see src/wazuh_injector.py). Install by appending these rules to
+  /var/ossec/etc/rules/local_rules.xml (or referencing this file) and restarting
+  wazuh-manager.
+
+  Two-level design: a raw anomaly (e.g. rule 100100 from the anomaly detector) is
+  only a low "review" signal. The escalation to a high, e-mailing level happens
+  HERE and only when the LLM confirms the threat (verdict MALICIOUS). The
+  false-positive verdict is kept at a low level so it is visible in the dashboard
+  but never e-mails.
+-->
+<group name="llm_triage,">
+
+  <!-- Confirmed threat: high level so it surfaces and, when above the manager's
+       email_alert_level, triggers the existing e-mail notification. -->
+  <rule id="100110" level="14">
+    <decoded_as>json</decoded_as>
+    <field name="llm_triage.verdict">^MALICIOUS$</field>
+    <description>LLM triage CONFIRMED THREAT on agent $(llm_triage.agent_id) - risk $(llm_triage.risk_level): $(llm_triage.justification)</description>
+    <group>llm_triage_verdict,llm_triage_malicious,gdpr_IV_35.7.d,</group>
+  </rule>
+
+  <!-- Dismissed as false positive: low level, logged and visible but silent. -->
+  <rule id="100111" level="3">
+    <decoded_as>json</decoded_as>
+    <field name="llm_triage.verdict">^FALSE_POSITIVE$</field>
+    <description>LLM triage dismissed as false positive on agent $(llm_triage.agent_id): $(llm_triage.justification)</description>
+    <group>llm_triage_verdict,llm_triage_false_positive,</group>
+  </rule>
+
+</group>
