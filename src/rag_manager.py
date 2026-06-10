@@ -42,6 +42,7 @@ class QdrantRAGManager:
         *,
         embedding_dim: int = EMBEDDING_DIM,
         top_k: int = 3,
+        score_threshold: float | None = None,
         timeout: int = 120,
     ) -> None:
         self.ollama_url = ollama_url.rstrip("/")
@@ -49,6 +50,10 @@ class QdrantRAGManager:
         self.collection_name = collection_name
         self.embedding_dim = embedding_dim
         self.top_k = top_k
+        # Minimum cosine similarity a fragment must reach to be fed to the LLM.
+        # None (or <= 0) disables the filter and returns the raw top_k. Opt-in,
+        # because too high a value can starve the LLM of context on a small KB.
+        self.score_threshold = score_threshold if (score_threshold or 0) > 0 else None
         self.timeout = timeout
         self.client = QdrantClient(url=qdrant_url, timeout=timeout)
 
@@ -161,6 +166,7 @@ class QdrantRAGManager:
             collection_name=self.collection_name,
             query=query_vector,
             limit=top_k or self.top_k,
+            score_threshold=self.score_threshold,
             with_payload=True,
         )
 
@@ -170,7 +176,10 @@ class QdrantRAGManager:
             text = payload.get("text")
             if text:
                 fragments.append(str(text))
-        logger.info("Retrieved %d context fragment(s) from Qdrant", len(fragments))
+        logger.info(
+            "Retrieved %d context fragment(s) from Qdrant (score_threshold=%s)",
+            len(fragments), self.score_threshold,
+        )
         return fragments
 
 

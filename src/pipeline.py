@@ -82,6 +82,22 @@ def _as_bool(value: Any, *, default: bool) -> bool:
     return default
 
 
+def _as_float_or_none(value: Any) -> "float | None":
+    """Parse an env-expanded value to a float, or None when empty/invalid.
+
+    Used for optional numeric knobs (e.g. the RAG score threshold) whose empty
+    placeholder must mean "feature disabled" rather than crash on float("").
+    """
+    text = str(value if value is not None else "").strip()
+    if not text:
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        logger.warning("Ignoring non-numeric value %r; treating as unset", text)
+        return None
+
+
 def _ingest_loop(
     config: Dict[str, Any],
     work_queue: "queue.Queue[Any]",
@@ -104,19 +120,38 @@ def _ingest_loop(
         work_queue.put(_SHUTDOWN)
 
 
+# Risk levels that must never be silenced by the false_positive flag.
+_SERIOUS_RISK = frozenset({"HIGH", "CRITICAL"})
+
+
+def _is_inconsistent(verdict: Dict[str, Any]) -> bool:
+    """True if the model flagged a serious-risk verdict as a false positive.
+
+    A HIGH/CRITICAL risk level paired with ``false_positive=true`` is a
+    self-contradictory answer (common with small quantised models). We surface
+    it rather than trust the flag, so the contradiction is auditable.
+    """
+    return verdict["false_positive"] and verdict["real_risk_level"] in _SERIOUS_RISK
+
+
 def _classify(verdict: Dict[str, Any]) -> str:
     """Map an LLM verdict to an escalation category.
 
-    Trust the LLM's risk level over its (sometimes inconsistent) false_positive
-    flag: only HIGH/CRITICAL real threats e-mail (MALICIOUS); MEDIUM is a
-    dashboard-only review signal (SUSPICIOUS); LOW or an explicit false positive
-    is dismissed silently (FALSE_POSITIVE).
+    The risk level is authoritative; the ``false_positive`` flag can only
+    *downgrade*, never silence a serious threat. A HIGH/CRITICAL verdict always
+    escalates to MALICIOUS even when the model also (inconsistently) set
+    false_positive=true, so a single model slip can never turn a real intrusion
+    into a silent dismissal. Only LOW/MEDIUM risk honours the flag: MEDIUM is a
+    dashboard-only review signal (SUSPICIOUS) unless dismissed; LOW or an
+    explicit false positive is recorded silently (FALSE_POSITIVE).
     """
-    if verdict["false_positive"] or verdict["real_risk_level"] == "LOW":
+    if verdict["real_risk_level"] in _SERIOUS_RISK:
+        return "MALICIOUS"
+    if verdict["false_positive"]:
         return "FALSE_POSITIVE"
     if verdict["real_risk_level"] == "MEDIUM":
         return "SUSPICIOUS"
-    return "MALICIOUS"
+    return "FALSE_POSITIVE"
 
 
 def _process_alert(
@@ -147,6 +182,12 @@ def _process_alert(
     # Graduated escalation: re-inject the verdict so it surfaces in the dashboard.
     # Only a confirmed HIGH/CRITICAL threat e-mails; MEDIUM is a silent review
     # signal; LOW / false positive is dismissed.
+    if _is_inconsistent(verdict):
+        logger.warning(
+            "Inconsistent verdict (risk=%s but false_positive=true); escalating "
+            "as MALICIOUS — the risk level overrides the flag. Justification: %s",
+            verdict["real_risk_level"], verdict["technical_justification"],
+        )
     classification = _classify(verdict)
     anomaly = (alert.get("data") or {}).get("anomaly_detector") or {}
 
@@ -193,6 +234,7 @@ def start_soc_pipeline(config_path: str = "config/app_config.json") -> None:
         collection_name=config["qdrant_collection"],
         embedding_dim=int(config.get("embedding_dim", 384)),
         top_k=int(config.get("rag_top_k", 3)),
+        score_threshold=_as_float_or_none(config.get("rag_score_threshold")),
         timeout=timeout,
     )
     rag.ensure_collection()

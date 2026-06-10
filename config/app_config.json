@@ -13,6 +13,7 @@
   "min_alert_level": "${MIN_ALERT_LEVEL:-7}",
   "triage_rule_groups": "${TRIAGE_RULE_GROUPS:-}",
   "rag_top_k": "${RAG_TOP_K:-5}",
+  "rag_score_threshold": "${RAG_SCORE_THRESHOLD:-}",
   "request_timeout_seconds": "${REQUEST_TIMEOUT_SECONDS:-120}",
 
   "verdict_injection": {
