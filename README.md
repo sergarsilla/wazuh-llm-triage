@@ -32,6 +32,8 @@ itself or on any host with spare CPU/RAM reachable from it — **no GPU required
 - [Project structure](#-project-structure)
 - [Quick start (Docker)](#-quick-start-docker)
 - [Local development (simulation)](#-local-development-simulation)
+- [Testing](#-testing)
+- [Evaluating the model](#-evaluating-the-model)
 - [Configuration](#-configuration)
 - [Knowledge base](#-knowledge-base)
 - [Security model](#-security-model)
@@ -46,7 +48,7 @@ itself or on any host with spare CPU/RAM reachable from it — **no GPU required
 | **Ingest** | Non-blocking tail of `alerts.json`, filtered by `rule.level` (default ≥ 7), rotation-safe. It skips its own re-injected verdicts so it never loops. |
 | **Retrieve** | The alert's salient fields (host, source IP and, for anomaly-detector alerts, the user/process/command) are embedded and matched against your knowledge base. |
 | **Classify** | A local LLM returns a strict JSON verdict: `false_positive`, `real_risk_level` (LOW/MEDIUM/HIGH/CRITICAL), `technical_justification`, `requires_active_response`, `suggested_mitigation_command`. |
-| **Escalate** | The verdict is re-injected into Wazuh. A `MALICIOUS` verdict fires a high-level rule (dashboard + e-mail); a `FALSE_POSITIVE` is recorded silently. The raw alert stays a low "review" signal — only the LLM verdict escalates it. |
+| **Escalate** | The verdict is re-injected into Wazuh. The **risk level is authoritative**: a HIGH/CRITICAL verdict always escalates to `MALICIOUS` (dashboard + e-mail) — the `false_positive` flag can downgrade but can *never* silence a serious risk, so a model slip can't turn a real intrusion into a silent dismissal. `MEDIUM` is a dashboard-only `SUSPICIOUS` review signal; `LOW`/false positive is recorded silently. The raw alert stays a low "review" signal — only the LLM verdict escalates it. |
 
 ## 🧰 Tech stack
 
@@ -70,6 +72,9 @@ itself or on any host with spare CPU/RAM reachable from it — **no GPU required
 | `rules/llm_triage_rules.xml` | Manager-side rules that score re-injected verdicts |
 | `data_ingest/populate_db.py` | Index the knowledge base into Qdrant |
 | `data_ingest/simulate_alerts.py` | Replay sample alerts (no manager needed) |
+| `data_ingest/labeled_alerts.jsonl` | Hand-labelled alerts (expected verdict per alert) for evaluation |
+| `tools/evaluate_triage.py` | Score a model against the labelled set (confusion matrix + critical-miss gate) |
+| `tests/` | Offline unit tests (pytest) for the classification, ingestion and parsing logic |
 
 ## 🚀 Quick start (Docker)
 
@@ -119,6 +124,40 @@ HIGH/CRITICAL; the internal scanner and the `ubuntu`/`docker` anomaly classified
 as false positives; the download-and-exec and reverse-shell anomalies flagged
 MALICIOUS; and the prompt-injection probe **not** changing the verdict.
 
+## 🧪 Testing
+
+The unit tests are **offline and deterministic** (no Ollama/Qdrant needed) — the
+HTTP and socket layers are mocked, so they run anywhere in ~2 s. They pin down
+the safety-critical logic: the escalation classifier (a HIGH/CRITICAL verdict can
+never be silently dropped), the anti-loop self-verdict guard, the severity/group
+filtering, prompt-injection delimiter hardening, verdict validation and config
+expansion.
+
+```bash
+pip install -r requirements.txt -r requirements-dev.txt
+python -m pytest tests/
+```
+
+## 📈 Evaluating the model
+
+Unit tests prove the *code* is correct; they cannot prove the *model* makes good
+calls. `tools/evaluate_triage.py` does that: it runs every alert in
+`data_ingest/labeled_alerts.jsonl` (hand-labelled with the verdict a human
+analyst would assign) through the real RAG + LLM + classification path and
+reports a confusion matrix, accuracy and — most importantly — **critical
+misses** (a labelled-`MALICIOUS` alert the model would have dismissed). It needs
+a live Ollama/Qdrant and an indexed knowledge base.
+
+```bash
+python data_ingest/populate_db.py            # index the KB first
+python tools/evaluate_triage.py              # evaluate the configured model
+python tools/evaluate_triage.py --model qwen2.5:7b-instruct   # compare another
+```
+
+The process exits non-zero if any critical miss occurs, so you can gate a model
+or prompt change in CI. Extend the labelled set with alerts from **your** own
+environment — that is what makes the score meaningful for you.
+
 ## ⚙️ Configuration
 
 Endpoints, models, paths and credentials come from environment variables, so no
@@ -139,6 +178,7 @@ only `${VAR:-default}` placeholders; override them via a gitignored `.env`
 | `KILL_SWITCH_FILE` | If this file exists, all Active Response is suppressed | `/var/ossec/.llm_triage_KILL` |
 | `MIN_ALERT_LEVEL` | Minimum `rule.level` to triage | `7` |
 | `TRIAGE_RULE_GROUPS` | Restrict triage to these `rule.groups` (comma-separated; empty = all) | — (all) |
+| `RAG_SCORE_THRESHOLD` | Min cosine similarity (0–1) a knowledge-base fragment must reach to be fed to the LLM; empty = disabled | — (off) |
 | `VERDICT_INJECTION_ENABLED` | Re-inject verdicts into Wazuh (Phase 2+) | `false` |
 | `RESPONDER_DRY_RUN` | Real Active Response runs only when explicitly `false` | `true` |
 | `RESPONDER_COMMAND_ALLOWLIST` | Allowed command names (comma-separated) | `firewall-drop` |
@@ -146,7 +186,14 @@ only `${VAR:-default}` placeholders; override them via a gitignored `.env`
 All operational settings are env-driven; `config/app_config.json` holds only
 `${VAR:-default}` placeholders, so you configure everything from `.env` and never
 edit the JSON. See `.env.example` for the full list (also `RAG_TOP_K`,
-`REQUEST_TIMEOUT_SECONDS`, `RESPONDER_DEFAULT_COMMAND`, `WAZUH_VERIFY_SSL`).
+`RAG_SCORE_THRESHOLD`, `REQUEST_TIMEOUT_SECONDS`, `RESPONDER_DEFAULT_COMMAND`,
+`WAZUH_VERIFY_SSL`).
+
+> **Model size.** The default `qwen2.5:3b` is the floor for a CPU box. The whole
+> system's value rests on verdict quality, so if your inference host can afford
+> the latency, a 7–8B instruct model gives noticeably more consistent verdicts.
+> Whatever you pick, measure it with `tools/evaluate_triage.py` (below) before
+> trusting it — don't take the model's word for it.
 
 ## 📚 Knowledge base
 
@@ -180,6 +227,14 @@ change.
    `verdict_injection.enabled: true`, keep `responder.dry_run: true`. Verdicts
    appear in the dashboard under `rule.groups: llm_triage`; a `MALICIOUS` verdict
    triggers your existing Wazuh e-mail.
+
+> **Set `email_alert_level` to 13 (or 14) on the manager.** The triage verdict
+> rules are deliberately layered so only a confirmed threat e-mails: `MALICIOUS`
+> is level 14, `SUSPICIOUS` level 9, `FALSE_POSITIVE` level 3. The companion
+> anomaly-detector's raw alert (rule 100100) is level 12 — so a threshold of 13
+> means the team is e-mailed by the LLM's *confirmed* verdict, not by every raw
+> statistical anomaly. Leaving it at 12 re-introduces the noise this layer
+> exists to remove.
 3. **Real Active Response** — only once you trust the verdicts: configure
    `command_allowlist`, the matching `<command>`/`<active-response>` blocks in
    `ossec.conf` and the `WAZUH_API_*` variables, then set
