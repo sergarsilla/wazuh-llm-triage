@@ -122,6 +122,19 @@ def _classify(verdict: Dict[str, Any]) -> str:
     return "MALICIOUS"
 
 
+def _apply_abstention(classification: str, confidence: float, threshold: float) -> str:
+    """Route an under-confident verdict to human review instead of auto-deciding.
+
+    Abstention only ever makes the system more conservative: below ``threshold``
+    we neither auto-dismiss (FALSE_POSITIVE) nor auto-escalate and act
+    (MALICIOUS), but downgrade to SUSPICIOUS so a human reviews it and no active
+    response fires. A ``threshold`` of 0 disables abstention entirely.
+    """
+    if threshold > 0.0 and confidence < threshold and classification != "SUSPICIOUS":
+        return "SUSPICIOUS"
+    return classification
+
+
 def _process_alert(
     alert: Dict[str, Any],
     rag: QdrantRAGManager,
@@ -129,6 +142,7 @@ def _process_alert(
     responder: WazuhResponder,
     verdict_injector: "WazuhVerdictInjector | None" = None,
     cache: "TTLCache | None" = None,
+    abstention_threshold: float = 0.0,
 ) -> None:
     """Run a single alert through RAG -> LLM -> (verdict re-injection, Active Response).
 
@@ -156,18 +170,28 @@ def _process_alert(
         if signature is not None:
             cache.put(signature, dict(verdict))  # type: ignore[union-attr]
 
+    confidence = float(verdict.get("confidence", 1.0))
     logger.info(
-        "Verdict: false_positive=%s risk=%s active_response=%s | %s",
+        "Verdict: false_positive=%s risk=%s active_response=%s confidence=%.2f | %s",
         verdict["false_positive"],
         verdict["real_risk_level"],
         verdict["requires_active_response"],
+        confidence,
         verdict["technical_justification"],
     )
 
     # Graduated escalation: re-inject the verdict so it surfaces in the dashboard.
     # Only a confirmed HIGH/CRITICAL threat e-mails; MEDIUM is a silent review
-    # signal; LOW / false positive is dismissed.
+    # signal; LOW / false positive is dismissed. An under-confident verdict
+    # abstains: it is routed to human review (SUSPICIOUS) and never auto-acted.
     classification = _classify(verdict)
+    effective = _apply_abstention(classification, confidence, abstention_threshold)
+    if effective != classification:
+        logger.info(
+            "Abstaining (confidence %.2f < %.2f): routing to human review (was %s)",
+            confidence, abstention_threshold, classification,
+        )
+        classification = effective
     anomaly = (alert.get("data") or {}).get("anomaly_detector") or {}
 
     if verdict_injector is not None:
@@ -268,6 +292,13 @@ def start_soc_pipeline(config_path: str = "config/app_config.json") -> None:
             verdict_cache.max_entries, verdict_cache.ttl_seconds,
         )
 
+    abstention_threshold = float(config.get("min_verdict_confidence", 0.0))
+    if abstention_threshold > 0.0:
+        logger.info(
+            "Abstention enabled: verdicts below confidence %.2f are routed to human review",
+            abstention_threshold,
+        )
+
     work_queue: "queue.Queue[Any]" = _build_work_queue(config)
     logger.info(
         "Work queue bounded at %s (0 = unbounded)",
@@ -294,7 +325,10 @@ def start_soc_pipeline(config_path: str = "config/app_config.json") -> None:
                 logger.info("Shutdown sentinel received; stopping consumer")
                 break
             try:
-                _process_alert(item, rag, llm, responder, verdict_injector, verdict_cache)
+                _process_alert(
+                    item, rag, llm, responder, verdict_injector, verdict_cache,
+                    abstention_threshold=abstention_threshold,
+                )
             except Exception:  # noqa: BLE001 - one bad alert must not kill the loop
                 logger.exception("Failed to process alert; continuing")
             finally:
