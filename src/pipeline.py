@@ -253,6 +253,7 @@ def start_soc_pipeline(config_path: str = "config/app_config.json") -> None:
         wazuh_api_user=responder_cfg.get("wazuh_api_user"),
         wazuh_api_password=responder_cfg.get("wazuh_api_password"),
         verify_ssl=_as_bool(responder_cfg.get("verify_ssl"), default=False),
+        dedup_ttl_seconds=float(responder_cfg.get("dedup_ttl_seconds", 300)),
     )
 
     vc_cfg = config.get("verdict_cache", {})
