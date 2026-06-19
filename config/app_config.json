@@ -20,6 +20,12 @@
     "socket_path": "${WAZUH_SOCKET_PATH:-/var/ossec/queue/sockets/queue}"
   },
 
+  "verdict_cache": {
+    "enabled": "${VERDICT_CACHE_ENABLED:-true}",
+    "ttl_seconds": "${VERDICT_CACHE_TTL_SECONDS:-3600}",
+    "max_entries": "${VERDICT_CACHE_MAX_ENTRIES:-1024}"
+  },
+
   "responder": {
     "dry_run": "${RESPONDER_DRY_RUN:-true}",
     "kill_switch_file": "${KILL_SWITCH_FILE:-/var/ossec/.llm_triage_KILL}",

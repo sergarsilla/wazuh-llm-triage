@@ -27,6 +27,7 @@ from .ingester import watch_alerts
 from .llm_client import OllamaSOCClient
 from .rag_manager import QdrantRAGManager
 from .responder import WazuhResponder
+from .verdict_cache import TTLCache, alert_signature
 from .wazuh_injector import WazuhVerdictInjector
 
 logger = logging.getLogger(__name__)
@@ -125,16 +126,33 @@ def _process_alert(
     llm: OllamaSOCClient,
     responder: WazuhResponder,
     verdict_injector: "WazuhVerdictInjector | None" = None,
+    cache: "TTLCache | None" = None,
 ) -> None:
-    """Run a single alert through RAG -> LLM -> (verdict re-injection, Active Response)."""
+    """Run a single alert through RAG -> LLM -> (verdict re-injection, Active Response).
+
+    A verdict cache, when supplied, short-circuits RAG + LLM for a repeat of an
+    already-triaged alert. The reused verdict drives the exact same downstream
+    as a fresh one, so the cache only removes recomputation, never a decision.
+    """
     rule = alert.get("rule") or {}
     logger.info(
         "Triaging alert: rule.id=%s level=%s desc=%r agent=%s",
         rule.get("id"), rule.get("level"), rule.get("description"), _agent_id_of(alert),
     )
 
-    context = rag.query_context(alert, top_k=rag.top_k)
-    verdict = llm.analyze_incident(alert, context)
+    signature = alert_signature(alert) if cache is not None else None
+    verdict: "Dict[str, Any] | None" = None
+    if signature is not None:
+        cached = cache.get(signature)  # type: ignore[union-attr]
+        if cached is not None:
+            verdict = dict(cached)
+            logger.info("Cache HIT (sig=%s): reusing verdict, skipping RAG+LLM", signature[:12])
+
+    if verdict is None:
+        context = rag.query_context(alert, top_k=rag.top_k)
+        verdict = llm.analyze_incident(alert, context)
+        if signature is not None:
+            cache.put(signature, dict(verdict))  # type: ignore[union-attr]
 
     logger.info(
         "Verdict: false_positive=%s risk=%s active_response=%s | %s",
@@ -223,6 +241,18 @@ def start_soc_pipeline(config_path: str = "config/app_config.json") -> None:
         verify_ssl=_as_bool(responder_cfg.get("verify_ssl"), default=False),
     )
 
+    vc_cfg = config.get("verdict_cache", {})
+    verdict_cache: "TTLCache | None" = None
+    if _as_bool(vc_cfg.get("enabled"), default=True):
+        verdict_cache = TTLCache(
+            max_entries=int(vc_cfg.get("max_entries", 1024)),
+            ttl_seconds=float(vc_cfg.get("ttl_seconds", 3600)),
+        )
+        logger.info(
+            "Verdict cache enabled (max_entries=%d, ttl=%.0fs)",
+            verdict_cache.max_entries, verdict_cache.ttl_seconds,
+        )
+
     work_queue: "queue.Queue[Any]" = queue.Queue()
     stop_event = threading.Event()
     producer = threading.Thread(
@@ -245,7 +275,7 @@ def start_soc_pipeline(config_path: str = "config/app_config.json") -> None:
                 logger.info("Shutdown sentinel received; stopping consumer")
                 break
             try:
-                _process_alert(item, rag, llm, responder, verdict_injector)
+                _process_alert(item, rag, llm, responder, verdict_injector, verdict_cache)
             except Exception:  # noqa: BLE001 - one bad alert must not kill the loop
                 logger.exception("Failed to process alert; continuing")
             finally:
