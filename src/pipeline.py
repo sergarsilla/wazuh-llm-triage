@@ -8,10 +8,12 @@ ingestion never blocks LLM inference:
 
 A background thread tails ``alerts.json`` and enqueues critical alerts. The
 main thread drains the queue and runs each alert through RAG context retrieval,
-LLM triage and, when warranted, the (dry-run) responder. An unbounded queue
-buffers alerts during transient Ollama/Qdrant outages so forensic telemetry is
-never dropped. Per-alert failures are logged and skipped without stopping the
-loop.
+LLM triage and, when warranted, the (dry-run) responder. A bounded queue applies
+backpressure during transient Ollama/Qdrant outages: the producer blocks instead
+of growing the queue until the process runs out of memory, and nothing is dropped
+because the alerts stay in Wazuh's on-disk log and the tail resumes once the
+consumer catches up. Per-alert failures are logged and skipped without stopping
+the loop.
 """
 
 from __future__ import annotations
@@ -197,6 +199,18 @@ def _process_alert(
         )
 
 
+def _build_work_queue(config: Dict[str, Any]) -> "queue.Queue[Any]":
+    """Create the producer/consumer queue, bounded unless explicitly unlimited.
+
+    A bounded queue applies backpressure: if the inference backends stall, the
+    producer blocks on ``put`` rather than letting the queue grow until the
+    process is OOM-killed. Nothing is lost — unread alerts remain in Wazuh's
+    on-disk log and the tail resumes when the consumer drains. Set
+    ``max_queue_size`` to 0 to restore an unbounded queue.
+    """
+    return queue.Queue(maxsize=int(config.get("max_queue_size", 10000)))
+
+
 def start_soc_pipeline(config_path: str = "config/app_config.json") -> None:
     """Start the autonomous triage loop using the given configuration file."""
     _setup_logging()
@@ -253,7 +267,11 @@ def start_soc_pipeline(config_path: str = "config/app_config.json") -> None:
             verdict_cache.max_entries, verdict_cache.ttl_seconds,
         )
 
-    work_queue: "queue.Queue[Any]" = queue.Queue()
+    work_queue: "queue.Queue[Any]" = _build_work_queue(config)
+    logger.info(
+        "Work queue bounded at %s (0 = unbounded)",
+        work_queue.maxsize if work_queue.maxsize > 0 else "unbounded",
+    )
     stop_event = threading.Event()
     producer = threading.Thread(
         target=_ingest_loop,
