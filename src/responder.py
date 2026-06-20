@@ -16,15 +16,20 @@ blast radius stays bounded:
 * **Kill-switch** — if ``kill_switch_file`` exists on disk, every dispatch is
   suppressed regardless of mode. ``touch``-ing that file is an instant global
   off-switch for automated response.
+* **Idempotency** — an optional TTL window collapses repeats of the same
+  (agent, command, arguments) order so a burst of identical alerts cannot fire
+  the same containment over and over.
 """
 
 from __future__ import annotations
 
 import logging
 import os
-from typing import Iterable, List, Optional
+from typing import Callable, Iterable, List, Optional
 
 import requests
+
+from .verdict_cache import TTLCache
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +49,8 @@ class WazuhResponder:
         wazuh_api_password: Optional[str] = None,
         verify_ssl: bool = False,
         timeout: int = 30,
+        dedup_ttl_seconds: float = 0.0,
+        time_fn: Optional[Callable[[], float]] = None,
     ) -> None:
         self.dry_run = dry_run
         # Empty allowlist => deny every dispatch (safe default).
@@ -57,10 +64,29 @@ class WazuhResponder:
         self.timeout = timeout
         # Cached JWT bearer token for the Wazuh API (lazily obtained).
         self._token: Optional[str] = None
+        # Idempotency window: remembers recently dispatched orders so duplicates
+        # within ``dedup_ttl_seconds`` are skipped. Disabled when the TTL is 0.
+        self.dedup_ttl_seconds = float(dedup_ttl_seconds)
+        self._recent: Optional[TTLCache] = None
+        if self.dedup_ttl_seconds > 0:
+            cache_kwargs: dict = {"max_entries": 4096, "ttl_seconds": self.dedup_ttl_seconds}
+            if time_fn is not None:
+                cache_kwargs["time_fn"] = time_fn
+            self._recent = TTLCache(**cache_kwargs)
 
     def _kill_switch_engaged(self) -> bool:
         """Return True if the kill-switch file is present (forces a no-op)."""
         return bool(self.kill_switch_file) and os.path.exists(self.kill_switch_file)
+
+    @staticmethod
+    def _dedup_key(agent_id: str, command: str, arguments: List[str]) -> str:
+        """Stable key identifying one containment order for the dedup window."""
+        return "\x1f".join([str(agent_id), str(command), *map(str, arguments)])
+
+    def _remember(self, key: str) -> None:
+        """Record a dispatched order so an immediate repeat is deduplicated."""
+        if self._recent is not None:
+            self._recent.put(key, True)
 
     def trigger_active_response(self, agent_id: str, command: str, arguments: List[str]) -> bool:
         """Dispatch an active-response ``command`` to ``agent_id``.
@@ -95,8 +121,19 @@ class WazuhResponder:
             )
             return False
 
+        # Idempotency: collapse a repeat of the same order within the TTL window.
+        # Treated as already handled (True) so the caller does not retry.
+        key = self._dedup_key(agent_id, command, arguments)
+        if self._recent is not None and self._recent.get(key) is not None:
+            logger.info(
+                "Active Response deduplicated (within %.0fs window) -> %s",
+                self.dedup_ttl_seconds, printable,
+            )
+            return True
+
         if self.dry_run:
             logger.warning("[DRY-RUN] Active Response NOT executed (allowed) -> %s", printable)
+            self._remember(key)
             return True
 
         if not self.wazuh_api_url:
@@ -104,10 +141,13 @@ class WazuhResponder:
             return False
 
         try:
-            return self._dispatch_via_api(agent_id, command, arguments)
+            dispatched = self._dispatch_via_api(agent_id, command, arguments)
         except requests.RequestException as exc:
             logger.error("Active Response API call failed (%s): %s", printable, exc)
             return False
+        if dispatched:
+            self._remember(key)
+        return dispatched
 
     # ------------------------------------------------------------------ #
     # Wazuh Manager REST API integration (only used when dry_run is False)

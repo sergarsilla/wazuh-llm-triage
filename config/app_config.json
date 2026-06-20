@@ -14,10 +14,18 @@
   "triage_rule_groups": "${TRIAGE_RULE_GROUPS:-}",
   "rag_top_k": "${RAG_TOP_K:-5}",
   "request_timeout_seconds": "${REQUEST_TIMEOUT_SECONDS:-120}",
+  "max_queue_size": "${MAX_QUEUE_SIZE:-10000}",
+  "min_verdict_confidence": "${MIN_VERDICT_CONFIDENCE:-0.0}",
 
   "verdict_injection": {
     "enabled": "${VERDICT_INJECTION_ENABLED:-false}",
     "socket_path": "${WAZUH_SOCKET_PATH:-/var/ossec/queue/sockets/queue}"
+  },
+
+  "verdict_cache": {
+    "enabled": "${VERDICT_CACHE_ENABLED:-true}",
+    "ttl_seconds": "${VERDICT_CACHE_TTL_SECONDS:-3600}",
+    "max_entries": "${VERDICT_CACHE_MAX_ENTRIES:-1024}"
   },
 
   "responder": {
@@ -25,6 +33,7 @@
     "kill_switch_file": "${KILL_SWITCH_FILE:-/var/ossec/.llm_triage_KILL}",
     "command_allowlist": "${RESPONDER_COMMAND_ALLOWLIST:-firewall-drop}",
     "default_command": "${RESPONDER_DEFAULT_COMMAND:-firewall-drop}",
+    "dedup_ttl_seconds": "${RESPONDER_DEDUP_TTL_SECONDS:-300}",
     "wazuh_api_url": "${WAZUH_API_URL:-https://localhost:55000}",
     "wazuh_api_user": "${WAZUH_API_USER:-wazuh-wui}",
     "wazuh_api_password": "${WAZUH_API_PASSWORD:-}",

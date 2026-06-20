@@ -1,0 +1,4 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Make the `src` package importable from the repo root without installation.
+pythonpath = ["."]

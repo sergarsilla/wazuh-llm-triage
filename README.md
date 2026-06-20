@@ -43,10 +43,10 @@ itself or on any host with spare CPU/RAM reachable from it — **no GPU required
 
 | Step | What happens |
 |------|--------------|
-| **Ingest** | Non-blocking tail of `alerts.json`, filtered by `rule.level` (default ≥ 7), rotation-safe. It skips its own re-injected verdicts so it never loops. |
-| **Retrieve** | The alert's salient fields (host, source IP and, for anomaly-detector alerts, the user/process/command) are embedded and matched against your knowledge base. |
-| **Classify** | A local LLM returns a strict JSON verdict: `false_positive`, `real_risk_level` (LOW/MEDIUM/HIGH/CRITICAL), `technical_justification`, `requires_active_response`, `suggested_mitigation_command`. |
-| **Escalate** | The verdict is re-injected into Wazuh. A `MALICIOUS` verdict fires a high-level rule (dashboard + e-mail); a `FALSE_POSITIVE` is recorded silently. The raw alert stays a low "review" signal — only the LLM verdict escalates it. |
+| **Ingest** | Non-blocking tail of `alerts.json`, filtered by `rule.level` (default ≥ 7), rotation-safe. It skips its own re-injected verdicts so it never loops. A bounded queue applies backpressure if the backends stall, so a transient outage can never grow memory without limit. |
+| **Retrieve** | The alert's salient fields (host, source IP and, for anomaly-detector alerts, the user/process/command) are embedded and matched against your knowledge base. A repeat of an already-triaged alert reuses a cached verdict (TTL + LRU) instead of re-running RAG + the LLM. |
+| **Classify** | A local LLM returns a strict JSON verdict: `false_positive`, `real_risk_level` (LOW/MEDIUM/HIGH/CRITICAL), `technical_justification`, `requires_active_response`, `suggested_mitigation_command`, `confidence` (0–1). |
+| **Escalate** | The verdict is re-injected into Wazuh. A `MALICIOUS` verdict fires a high-level rule (dashboard + e-mail); a `FALSE_POSITIVE` is recorded silently; an under-confident verdict **abstains** — routed to review (SUSPICIOUS) and never auto-acted. The raw alert stays a low "review" signal — only the LLM verdict escalates it. |
 
 ## 🧰 Tech stack
 
@@ -66,7 +66,8 @@ itself or on any host with spare CPU/RAM reachable from it — **no GPU required
 | `src/responder.py` | Active Response with allowlist, kill-switch and dry-run |
 | `src/wazuh_injector.py` | Re-injects verdicts into Wazuh via the queue socket |
 | `src/verdict_contract.py` | Shared verdict location / rule ids |
-| `src/pipeline.py` | Threaded producer/consumer orchestrator |
+| `src/verdict_cache.py` | TTL + LRU cache that reuses verdicts for repeat alerts |
+| `src/pipeline.py` | Threaded producer/consumer orchestrator (bounded queue) |
 | `rules/llm_triage_rules.xml` | Manager-side rules that score re-injected verdicts |
 | `data_ingest/populate_db.py` | Index the knowledge base into Qdrant |
 | `data_ingest/simulate_alerts.py` | Replay sample alerts (no manager needed) |
@@ -142,6 +143,10 @@ only `${VAR:-default}` placeholders; override them via a gitignored `.env`
 | `VERDICT_INJECTION_ENABLED` | Re-inject verdicts into Wazuh (Phase 2+) | `false` |
 | `RESPONDER_DRY_RUN` | Real Active Response runs only when explicitly `false` | `true` |
 | `RESPONDER_COMMAND_ALLOWLIST` | Allowed command names (comma-separated) | `firewall-drop` |
+| `RESPONDER_DEDUP_TTL_SECONDS` | Skip a repeat of the same containment order within this window (0 = off) | `300` |
+| `MIN_VERDICT_CONFIDENCE` | Abstain below this confidence — route to review, never auto-act (0 = off) | `0.0` |
+| `MAX_QUEUE_SIZE` | Bounded in-flight alert buffer; applies backpressure (0 = unbounded) | `10000` |
+| `VERDICT_CACHE_ENABLED` / `_TTL_SECONDS` / `_MAX_ENTRIES` | Reuse verdicts for repeat alerts | `true` / `3600` / `1024` |
 
 All operational settings are env-driven; `config/app_config.json` holds only
 `${VAR:-default}` placeholders, so you configure everything from `.env` and never
@@ -171,6 +176,12 @@ change.
   `true`) logs the intended action without performing it.
 - **Kill-switch** — `touch`-ing `KILL_SWITCH_FILE` instantly suppresses all
   Active Response, even in real mode.
+- **Idempotent response** — a repeat of the same containment order (agent +
+  command + arguments) within `RESPONDER_DEDUP_TTL_SECONDS` is skipped, so an
+  alert burst cannot re-fire it.
+- **Abstention** — a verdict whose self-reported `confidence` is below
+  `MIN_VERDICT_CONFIDENCE` is routed to human review instead of being
+  auto-dismissed or auto-acted on (opt-in; only ever more conservative).
 
 ## 🪜 Phased rollout
 

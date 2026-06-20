@@ -8,10 +8,12 @@ ingestion never blocks LLM inference:
 
 A background thread tails ``alerts.json`` and enqueues critical alerts. The
 main thread drains the queue and runs each alert through RAG context retrieval,
-LLM triage and, when warranted, the (dry-run) responder. An unbounded queue
-buffers alerts during transient Ollama/Qdrant outages so forensic telemetry is
-never dropped. Per-alert failures are logged and skipped without stopping the
-loop.
+LLM triage and, when warranted, the (dry-run) responder. A bounded queue applies
+backpressure during transient Ollama/Qdrant outages: the producer blocks instead
+of growing the queue until the process runs out of memory, and nothing is dropped
+because the alerts stay in Wazuh's on-disk log and the tail resumes once the
+consumer catches up. Per-alert failures are logged and skipped without stopping
+the loop.
 """
 
 from __future__ import annotations
@@ -27,6 +29,7 @@ from .ingester import watch_alerts
 from .llm_client import OllamaSOCClient
 from .rag_manager import QdrantRAGManager
 from .responder import WazuhResponder
+from .verdict_cache import TTLCache, alert_signature
 from .wazuh_injector import WazuhVerdictInjector
 
 logger = logging.getLogger(__name__)
@@ -119,35 +122,76 @@ def _classify(verdict: Dict[str, Any]) -> str:
     return "MALICIOUS"
 
 
+def _apply_abstention(classification: str, confidence: float, threshold: float) -> str:
+    """Route an under-confident verdict to human review instead of auto-deciding.
+
+    Abstention only ever makes the system more conservative: below ``threshold``
+    we neither auto-dismiss (FALSE_POSITIVE) nor auto-escalate and act
+    (MALICIOUS), but downgrade to SUSPICIOUS so a human reviews it and no active
+    response fires. A ``threshold`` of 0 disables abstention entirely.
+    """
+    if threshold > 0.0 and confidence < threshold and classification != "SUSPICIOUS":
+        return "SUSPICIOUS"
+    return classification
+
+
 def _process_alert(
     alert: Dict[str, Any],
     rag: QdrantRAGManager,
     llm: OllamaSOCClient,
     responder: WazuhResponder,
     verdict_injector: "WazuhVerdictInjector | None" = None,
+    cache: "TTLCache | None" = None,
+    abstention_threshold: float = 0.0,
 ) -> None:
-    """Run a single alert through RAG -> LLM -> (verdict re-injection, Active Response)."""
+    """Run a single alert through RAG -> LLM -> (verdict re-injection, Active Response).
+
+    A verdict cache, when supplied, short-circuits RAG + LLM for a repeat of an
+    already-triaged alert. The reused verdict drives the exact same downstream
+    as a fresh one, so the cache only removes recomputation, never a decision.
+    """
     rule = alert.get("rule") or {}
     logger.info(
         "Triaging alert: rule.id=%s level=%s desc=%r agent=%s",
         rule.get("id"), rule.get("level"), rule.get("description"), _agent_id_of(alert),
     )
 
-    context = rag.query_context(alert, top_k=rag.top_k)
-    verdict = llm.analyze_incident(alert, context)
+    signature = alert_signature(alert) if cache is not None else None
+    verdict: "Dict[str, Any] | None" = None
+    if signature is not None:
+        cached = cache.get(signature)  # type: ignore[union-attr]
+        if cached is not None:
+            verdict = dict(cached)
+            logger.info("Cache HIT (sig=%s): reusing verdict, skipping RAG+LLM", signature[:12])
 
+    if verdict is None:
+        context = rag.query_context(alert, top_k=rag.top_k)
+        verdict = llm.analyze_incident(alert, context)
+        if signature is not None:
+            cache.put(signature, dict(verdict))  # type: ignore[union-attr]
+
+    confidence = float(verdict.get("confidence", 1.0))
     logger.info(
-        "Verdict: false_positive=%s risk=%s active_response=%s | %s",
+        "Verdict: false_positive=%s risk=%s active_response=%s confidence=%.2f | %s",
         verdict["false_positive"],
         verdict["real_risk_level"],
         verdict["requires_active_response"],
+        confidence,
         verdict["technical_justification"],
     )
 
     # Graduated escalation: re-inject the verdict so it surfaces in the dashboard.
     # Only a confirmed HIGH/CRITICAL threat e-mails; MEDIUM is a silent review
-    # signal; LOW / false positive is dismissed.
+    # signal; LOW / false positive is dismissed. An under-confident verdict
+    # abstains: it is routed to human review (SUSPICIOUS) and never auto-acted.
     classification = _classify(verdict)
+    effective = _apply_abstention(classification, confidence, abstention_threshold)
+    if effective != classification:
+        logger.info(
+            "Abstaining (confidence %.2f < %.2f): routing to human review (was %s)",
+            confidence, abstention_threshold, classification,
+        )
+        classification = effective
     anomaly = (alert.get("data") or {}).get("anomaly_detector") or {}
 
     if verdict_injector is not None:
@@ -177,6 +221,18 @@ def _process_alert(
             command=responder.default_command,
             arguments=[],
         )
+
+
+def _build_work_queue(config: Dict[str, Any]) -> "queue.Queue[Any]":
+    """Create the producer/consumer queue, bounded unless explicitly unlimited.
+
+    A bounded queue applies backpressure: if the inference backends stall, the
+    producer blocks on ``put`` rather than letting the queue grow until the
+    process is OOM-killed. Nothing is lost — unread alerts remain in Wazuh's
+    on-disk log and the tail resumes when the consumer drains. Set
+    ``max_queue_size`` to 0 to restore an unbounded queue.
+    """
+    return queue.Queue(maxsize=int(config.get("max_queue_size", 10000)))
 
 
 def start_soc_pipeline(config_path: str = "config/app_config.json") -> None:
@@ -221,9 +277,33 @@ def start_soc_pipeline(config_path: str = "config/app_config.json") -> None:
         wazuh_api_user=responder_cfg.get("wazuh_api_user"),
         wazuh_api_password=responder_cfg.get("wazuh_api_password"),
         verify_ssl=_as_bool(responder_cfg.get("verify_ssl"), default=False),
+        dedup_ttl_seconds=float(responder_cfg.get("dedup_ttl_seconds", 300)),
     )
 
-    work_queue: "queue.Queue[Any]" = queue.Queue()
+    vc_cfg = config.get("verdict_cache", {})
+    verdict_cache: "TTLCache | None" = None
+    if _as_bool(vc_cfg.get("enabled"), default=True):
+        verdict_cache = TTLCache(
+            max_entries=int(vc_cfg.get("max_entries", 1024)),
+            ttl_seconds=float(vc_cfg.get("ttl_seconds", 3600)),
+        )
+        logger.info(
+            "Verdict cache enabled (max_entries=%d, ttl=%.0fs)",
+            verdict_cache.max_entries, verdict_cache.ttl_seconds,
+        )
+
+    abstention_threshold = float(config.get("min_verdict_confidence", 0.0))
+    if abstention_threshold > 0.0:
+        logger.info(
+            "Abstention enabled: verdicts below confidence %.2f are routed to human review",
+            abstention_threshold,
+        )
+
+    work_queue: "queue.Queue[Any]" = _build_work_queue(config)
+    logger.info(
+        "Work queue bounded at %s (0 = unbounded)",
+        work_queue.maxsize if work_queue.maxsize > 0 else "unbounded",
+    )
     stop_event = threading.Event()
     producer = threading.Thread(
         target=_ingest_loop,
@@ -245,7 +325,10 @@ def start_soc_pipeline(config_path: str = "config/app_config.json") -> None:
                 logger.info("Shutdown sentinel received; stopping consumer")
                 break
             try:
-                _process_alert(item, rag, llm, responder, verdict_injector)
+                _process_alert(
+                    item, rag, llm, responder, verdict_injector, verdict_cache,
+                    abstention_threshold=abstention_threshold,
+                )
             except Exception:  # noqa: BLE001 - one bad alert must not kill the loop
                 logger.exception("Failed to process alert; continuing")
             finally:
