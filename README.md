@@ -63,6 +63,7 @@ itself or on any host with spare CPU/RAM reachable from it — **no GPU required
 | `src/ingester.py` | Non-blocking `tail -f` of `alerts.json`, severity filter, self-verdict skip |
 | `src/rag_manager.py` | Ollama embeddings + Qdrant retrieval |
 | `src/llm_client.py` | Ollama chat client, schema-enforced verdict, injection-hardened prompt |
+| `src/indicators.py` | Deterministic command indicators that gate verdict escalation |
 | `src/responder.py` | Active Response with allowlist, kill-switch and dry-run |
 | `src/wazuh_injector.py` | Re-injects verdicts into Wazuh via the queue socket |
 | `src/verdict_contract.py` | Shared verdict location / rule ids |
@@ -145,6 +146,8 @@ only `${VAR:-default}` placeholders; override them via a gitignored `.env`
 | `RESPONDER_COMMAND_ALLOWLIST` | Allowed command names (comma-separated) | `firewall-drop` |
 | `RESPONDER_DEDUP_TTL_SECONDS` | Skip a repeat of the same containment order within this window (0 = off) | `300` |
 | `MIN_VERDICT_CONFIDENCE` | Abstain below this confidence — route to review, never auto-act (0 = off) | `0.0` |
+| `ESCALATION_GATE_ENABLED` | Require a matched indicator before a verdict may e-mail | `true` |
+| `ESCALATION_GATE_CRITICAL_INDICATORS` | Indicators that escalate even if the LLM dismisses them (comma-separated; empty = none) | `security_tooling_disabled,log_tampering` |
 | `MAX_QUEUE_SIZE` | Bounded in-flight alert buffer; applies backpressure (0 = unbounded) | `10000` |
 | `VERDICT_CACHE_ENABLED` / `_TTL_SECONDS` / `_MAX_ENTRIES` | Reuse verdicts for repeat alerts | `true` / `3600` / `1024` |
 
@@ -182,6 +185,16 @@ change.
 - **Abstention** — a verdict whose self-reported `confidence` is below
   `MIN_VERDICT_CONFIDENCE` is routed to human review instead of being
   auto-dismissed or auto-acted on (opt-in; only ever more conservative).
+- **Escalation gate** — a small instruction model rates severity by analogy with
+  the examples in its prompt, so it escalates commands that merely *resemble* an
+  attack. Before a verdict may e-mail, the command must match a deterministic
+  indicator in `src/indicators.py`. The match is necessary, never sufficient, so
+  the gate can only withhold an escalation, never raise one; an anomaly matching
+  nothing is unusual in shape alone and is capped at `SUSPICIOUS` — still in the
+  dashboard, no e-mail, no Active Response. `ESCALATION_GATE_CRITICAL_INDICATORS`
+  is the exception: indicators that escalate even when the LLM dismisses them.
+  Matched indicators are recorded on the verdict, so no alert changes tier
+  without an audit trail.
 
 ## 🪜 Phased rollout
 
