@@ -22,6 +22,11 @@
     "socket_path": "${WAZUH_SOCKET_PATH:-/var/ossec/queue/sockets/queue}"
   },
 
+  "escalation_gate": {
+    "enabled": "${ESCALATION_GATE_ENABLED:-true}",
+    "critical_indicators": "${ESCALATION_GATE_CRITICAL_INDICATORS:-security_tooling_disabled,log_tampering}"
+  },
+
   "verdict_cache": {
     "enabled": "${VERDICT_CACHE_ENABLED:-true}",
     "ttl_seconds": "${VERDICT_CACHE_TTL_SECONDS:-3600}",

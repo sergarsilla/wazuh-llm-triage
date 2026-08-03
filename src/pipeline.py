@@ -22,9 +22,14 @@ import logging
 import queue
 import sys
 import threading
-from typing import Any, Dict
+from typing import Any, Dict, FrozenSet, List, Sequence
 
 from .config import load_config
+from .indicators import (
+    DEFAULT_CRITICAL_INDICATORS,
+    match_indicators,
+    parse_critical_indicators,
+)
 from .ingester import watch_alerts
 from .llm_client import OllamaSOCClient
 from .rag_manager import QdrantRAGManager
@@ -135,6 +140,33 @@ def _apply_abstention(classification: str, confidence: float, threshold: float) 
     return classification
 
 
+def _command_of(alert: Dict[str, Any]) -> str:
+    """Return the command line an anomaly alert carries, or ``""`` if it has none."""
+    anomaly = (alert.get("data") or {}).get("anomaly_detector") or {}
+    return str(anomaly.get("command") or "").strip()
+
+
+def _apply_escalation_gate(
+    classification: str,
+    indicators: Sequence[str],
+    critical_indicators: FrozenSet[str],
+) -> str:
+    """Require deterministic evidence before a verdict may reach the e-mail tier.
+
+    A MALICIOUS verdict on a command matching no indicator is capped at
+    SUSPICIOUS: still visible in the dashboard, but no e-mail and no active
+    response. A critical indicator escalates even when the LLM dismissed it.
+
+    Callers must skip this when the alert carries no command: an absent command
+    is not evidence of absent danger.
+    """
+    if classification == "MALICIOUS" and not indicators:
+        return "SUSPICIOUS"
+    if classification != "MALICIOUS" and set(indicators) & critical_indicators:
+        return "MALICIOUS"
+    return classification
+
+
 def _process_alert(
     alert: Dict[str, Any],
     rag: QdrantRAGManager,
@@ -143,6 +175,8 @@ def _process_alert(
     verdict_injector: "WazuhVerdictInjector | None" = None,
     cache: "TTLCache | None" = None,
     abstention_threshold: float = 0.0,
+    gate_enabled: bool = True,
+    critical_indicators: FrozenSet[str] = DEFAULT_CRITICAL_INDICATORS,
 ) -> None:
     """Run a single alert through RAG -> LLM -> (verdict re-injection, Active Response).
 
@@ -192,6 +226,20 @@ def _process_alert(
             confidence, abstention_threshold, classification,
         )
         classification = effective
+
+    # An alert with no command has nothing to match, so the gate does not apply.
+    command = _command_of(alert)
+    indicators: List[str] = []
+    if gate_enabled and command:
+        indicators = match_indicators(command)
+        gated = _apply_escalation_gate(classification, indicators, critical_indicators)
+        if gated != classification:
+            logger.info(
+                "Escalation gate: %s -> %s (indicators: %s)",
+                classification, gated, ", ".join(indicators) or "none",
+            )
+            classification = gated
+
     anomaly = (alert.get("data") or {}).get("anomaly_detector") or {}
 
     if verdict_injector is not None:
@@ -207,6 +255,7 @@ def _process_alert(
             anomaly_score=str(anomaly.get("anomaly_score", "")),
             justification=verdict["technical_justification"],
             correlation_id=str(alert.get("id", "")),
+            indicators=indicators,
         )
 
     # Active response only for a confirmed (HIGH/CRITICAL) threat.
@@ -299,6 +348,18 @@ def start_soc_pipeline(config_path: str = "config/app_config.json") -> None:
             abstention_threshold,
         )
 
+    gate_cfg = config.get("escalation_gate", {})
+    gate_enabled = _as_bool(gate_cfg.get("enabled"), default=True)
+    critical_indicators = parse_critical_indicators(gate_cfg.get("critical_indicators"))
+    if gate_enabled:
+        logger.info(
+            "Escalation gate enabled: a verdict e-mails only when the command "
+            "matches an indicator; critical indicators: %s",
+            ", ".join(sorted(critical_indicators)) or "none",
+        )
+    else:
+        logger.warning("Escalation gate DISABLED: the LLM verdict alone drives escalation")
+
     work_queue: "queue.Queue[Any]" = _build_work_queue(config)
     logger.info(
         "Work queue bounded at %s (0 = unbounded)",
@@ -328,6 +389,8 @@ def start_soc_pipeline(config_path: str = "config/app_config.json") -> None:
                 _process_alert(
                     item, rag, llm, responder, verdict_injector, verdict_cache,
                     abstention_threshold=abstention_threshold,
+                    gate_enabled=gate_enabled,
+                    critical_indicators=critical_indicators,
                 )
             except Exception:  # noqa: BLE001 - one bad alert must not kill the loop
                 logger.exception("Failed to process alert; continuing")

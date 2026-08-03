@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import socket
-from typing import Optional
+from typing import Optional, Sequence
 
 from .verdict_contract import VERDICT_LOCATION
 
@@ -47,6 +47,7 @@ class WazuhVerdictInjector:
         anomaly_score: str = "",
         justification: str = "",
         correlation_id: str = "",
+        indicators: Optional[Sequence[str]] = None,
     ) -> bool:
         """Inject a single verdict alert. Returns True on success, False on error.
 
@@ -60,6 +61,8 @@ class WazuhVerdictInjector:
                 over from the original anomaly, so the verdict is actionable.
             justification: The LLM's technical justification (truncated).
             correlation_id: The id of the original alert, for cross-reference.
+            indicators: Deterministic indicators matched in the command, recorded
+                as the evidence that permitted or withheld the escalation.
         """
         payload = {
             VERDICT_LOCATION: {
@@ -74,6 +77,7 @@ class WazuhVerdictInjector:
                 "anomaly_score": anomaly_score,
                 "justification": justification[:_MAX_JUSTIFICATION_LEN],
                 "correlation_id": correlation_id,
+                "indicators": ", ".join(indicators or []),
             }
         }
         message = f"{_QUEUE_PREFIX}{json.dumps(payload, ensure_ascii=False)}"
