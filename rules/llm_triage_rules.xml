@@ -7,7 +7,9 @@
   /var/ossec/etc/rules/local_rules.xml (or referencing this file) and restarting
   wazuh-manager.
 
-  Graduated escalation, driven by the LLM verdict (not the raw anomaly):
+  Graduated escalation, driven by the LLM verdict (not the raw anomaly) and
+  gated by the deterministic indicators in src/indicators.py, so a command that
+  matches none of them can never reach level 14:
     - MALICIOUS    (HIGH/CRITICAL real threat) -> level 14, e-mails.
     - SUSPICIOUS   (MEDIUM, worth a look)      -> level 9, dashboard only.
     - FALSE_POSITIVE (LOW / dismissed)         -> level 3, silent.
@@ -21,7 +23,7 @@
   <rule id="100110" level="14">
     <decoded_as>json</decoded_as>
     <field name="llm_triage.verdict">^MALICIOUS$</field>
-    <description>LLM triage CONFIRMED THREAT on agent $(llm_triage.agent_id) user $(llm_triage.user) - risk $(llm_triage.risk_level) - cmd: $(llm_triage.command) :: $(llm_triage.justification)</description>
+    <description>LLM triage CONFIRMED THREAT on agent $(llm_triage.agent_id) user $(llm_triage.user) - risk $(llm_triage.risk_level) - indicators: $(llm_triage.indicators) - cmd: $(llm_triage.command) :: $(llm_triage.justification)</description>
     <group>llm_triage_verdict,llm_triage_malicious,gdpr_IV_35.7.d,</group>
   </rule>
 
