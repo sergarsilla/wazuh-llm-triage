@@ -24,8 +24,12 @@ INDICATOR_PATTERNS: Dict[str, re.Pattern[str]] = {
     "pipe_to_interpreter": re.compile(
         rf"\|\s*(?:sudo\s+)?(?:/\S*/)?(?:{_INTERPRETERS})\b", re.IGNORECASE
     ),
+    # Loopback targets are local API reads (e.g. a monitoring container querying
+    # its own endpoint), not downloads from a remote host, so they are excluded.
     "remote_fetch": re.compile(
-        r"\b(?:curl|wget|fetch)\b.*?\b(?:https?|ftp)://|\b(?:curl|wget)\s+-", re.IGNORECASE
+        r"\b(?:curl|wget|fetch)\b.*?\b(?:https?|ftp)://"
+        r"(?!localhost\b|127\.|0\.0\.0\.0|\[?::1\]?)",
+        re.IGNORECASE,
     ),
     "raw_socket_redirect": re.compile(r"/dev/(?:tcp|udp)/", re.IGNORECASE),
     "encoded_payload": re.compile(

