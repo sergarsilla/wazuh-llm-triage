@@ -106,15 +106,20 @@ def test_gate_never_invents_an_escalation() -> None:
         ) == dismissed
 
 
-def test_gate_overrides_a_dismissed_critical_indicator() -> None:
-    indicators = match_indicators("/usr/bin/systemctl stop wazuh-agent")
+@pytest.mark.parametrize("command", [
+    "/usr/bin/systemctl stop wazuh-agent",  # security_tooling_disabled
+    "/usr/bin/shred -u /var/log/auth.log",  # log_tampering
+    "/bin/cat /etc/shadow",                 # credential_access
+])
+def test_gate_overrides_a_dismissed_critical_indicator(command: str) -> None:
     assert _apply_escalation_gate(
-        "FALSE_POSITIVE", indicators, DEFAULT_CRITICAL_INDICATORS
+        "FALSE_POSITIVE", match_indicators(command), DEFAULT_CRITICAL_INDICATORS
     ) == "MALICIOUS"
 
 
 def test_gate_leaves_non_critical_dismissals_alone() -> None:
-    indicators = match_indicators("/bin/cat /etc/shadow")
+    indicators = match_indicators("/usr/bin/apt-get install -y nginx")  # package_management
+    assert indicators and not set(indicators) & DEFAULT_CRITICAL_INDICATORS
     assert _apply_escalation_gate(
         "FALSE_POSITIVE", indicators, DEFAULT_CRITICAL_INDICATORS
     ) == "FALSE_POSITIVE"

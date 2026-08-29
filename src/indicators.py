@@ -89,10 +89,10 @@ INDICATOR_PATTERNS: Dict[str, re.Pattern[str]] = {
     ),
 }
 
-# Indicators that escalate even when the LLM dismisses them: an attacker blinding
-# the monitoring must not depend on the model agreeing.
+# Indicators that escalate even when the LLM dismisses them: blinding the
+# monitoring or reading credentials must not depend on the model agreeing.
 DEFAULT_CRITICAL_INDICATORS: FrozenSet[str] = frozenset(
-    {"security_tooling_disabled", "log_tampering"}
+    {"security_tooling_disabled", "log_tampering", "credential_access"}
 )
 
 
