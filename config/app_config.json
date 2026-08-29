@@ -24,7 +24,7 @@
 
   "escalation_gate": {
     "enabled": "${ESCALATION_GATE_ENABLED:-true}",
-    "critical_indicators": "${ESCALATION_GATE_CRITICAL_INDICATORS:-security_tooling_disabled,log_tampering}"
+    "critical_indicators": "${ESCALATION_GATE_CRITICAL_INDICATORS:-security_tooling_disabled,log_tampering,credential_access}"
   },
 
   "verdict_cache": {

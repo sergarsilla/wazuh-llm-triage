@@ -147,7 +147,7 @@ only `${VAR:-default}` placeholders; override them via a gitignored `.env`
 | `RESPONDER_DEDUP_TTL_SECONDS` | Skip a repeat of the same containment order within this window (0 = off) | `300` |
 | `MIN_VERDICT_CONFIDENCE` | Abstain below this confidence — route to review, never auto-act (0 = off) | `0.0` |
 | `ESCALATION_GATE_ENABLED` | Require a matched indicator before a verdict may e-mail | `true` |
-| `ESCALATION_GATE_CRITICAL_INDICATORS` | Indicators that escalate even if the LLM dismisses them (comma-separated; empty = none) | `security_tooling_disabled,log_tampering` |
+| `ESCALATION_GATE_CRITICAL_INDICATORS` | Indicators that escalate even if the LLM dismisses them (comma-separated; empty = none) | `security_tooling_disabled,log_tampering,credential_access` |
 | `MAX_QUEUE_SIZE` | Bounded in-flight alert buffer; applies backpressure (0 = unbounded) | `10000` |
 | `VERDICT_CACHE_ENABLED` / `_TTL_SECONDS` / `_MAX_ENTRIES` | Reuse verdicts for repeat alerts | `true` / `3600` / `1024` |
 
