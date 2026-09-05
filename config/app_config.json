@@ -13,6 +13,7 @@
   "min_alert_level": "${MIN_ALERT_LEVEL:-7}",
   "triage_rule_groups": "${TRIAGE_RULE_GROUPS:-}",
   "rag_top_k": "${RAG_TOP_K:-5}",
+  "llm_max_tokens": "${LLM_MAX_TOKENS:-320}",
   "request_timeout_seconds": "${REQUEST_TIMEOUT_SECONDS:-120}",
   "max_queue_size": "${MAX_QUEUE_SIZE:-10000}",
   "min_verdict_confidence": "${MIN_VERDICT_CONFIDENCE:-0.0}",

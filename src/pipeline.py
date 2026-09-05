@@ -306,6 +306,7 @@ def start_soc_pipeline(config_path: str = "config/app_config.json") -> None:
         ollama_url=config["ollama_url"],
         model_name=config["llm_model_name"],
         timeout=timeout,
+        max_tokens=int(config.get("llm_max_tokens", 320)),
     )
 
     vi_cfg = config.get("verdict_injection", {})

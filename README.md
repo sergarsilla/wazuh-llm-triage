@@ -154,7 +154,15 @@ only `${VAR:-default}` placeholders; override them via a gitignored `.env`
 All operational settings are env-driven; `config/app_config.json` holds only
 `${VAR:-default}` placeholders, so you configure everything from `.env` and never
 edit the JSON. See `.env.example` for the full list (also `RAG_TOP_K`,
-`REQUEST_TIMEOUT_SECONDS`, `RESPONDER_DEFAULT_COMMAND`, `WAZUH_VERIFY_SSL`).
+`LLM_MAX_TOKENS`, `REQUEST_TIMEOUT_SECONDS`, `RESPONDER_DEFAULT_COMMAND`,
+`WAZUH_VERIFY_SSL`).
+
+On a CPU-only inference host the two knobs that decide whether a verdict
+arrives before `REQUEST_TIMEOUT_SECONDS` are `RAG_TOP_K` (every fragment is
+prompt the model must read first) and `LLM_MAX_TOKENS` (the schema bounds the
+shape of the reply, never its length). Ollama also serialises requests by
+default, so in an alert burst the wait is cumulative: raising the timeout grows
+the queue instead of draining it.
 
 ## 📚 Knowledge base
 

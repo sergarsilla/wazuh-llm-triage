@@ -114,11 +114,13 @@ class OllamaSOCClient:
         *,
         timeout: int = 120,
         temperature: float = 0.0,
+        max_tokens: int = 320,
     ) -> None:
         self.ollama_url = ollama_url.rstrip("/")
         self.model_name = model_name
         self.timeout = timeout
         self.temperature = temperature
+        self.max_tokens = max_tokens
 
     def _build_user_prompt(self, alert_json: Dict[str, Any], corporate_context: List[str]) -> str:
         """Assemble the user turn containing the alert and the RAG context.
@@ -168,7 +170,16 @@ class OllamaSOCClient:
             ],
             "stream": False,
             "format": RESPONSE_SCHEMA,
-            "options": {"temperature": self.temperature},
+            # num_predict bounds the reply. The schema constrains its *shape*,
+            # not its length: technical_justification is free text, so on a slow
+            # CPU host one verbose verdict can spend the whole request budget and
+            # time the call out. A truncated reply fails to parse and is retried
+            # or dropped, which is the same outcome as the timeout but reached in
+            # seconds instead of minutes.
+            "options": {
+                "temperature": self.temperature,
+                "num_predict": self.max_tokens,
+            },
         }
 
         response = requests.post(
