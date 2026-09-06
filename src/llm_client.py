@@ -112,6 +112,51 @@ SYSTEM_PROMPT = (
 )
 
 
+def _matches(left: Any, right: Any) -> bool:
+    """Compare two decoded-JSON values, tolerating Wazuh's type coercion.
+
+    Wazuh stores decoded fields as strings, so the same value appears as ``1.21``
+    in one place and ``"1.210000"`` in another. Numbers are therefore compared
+    numerically and everything else as text.
+    """
+    if isinstance(left, dict) and isinstance(right, dict):
+        return left.keys() == right.keys() and all(_matches(left[k], right[k]) for k in left)
+    if isinstance(left, list) and isinstance(right, list):
+        return len(left) == len(right) and all(_matches(a, b) for a, b in zip(left, right))
+    if left == right:
+        return True
+    try:
+        return float(left) == float(right)
+    except (TypeError, ValueError):
+        return str(left) == str(right)
+
+
+def _without_redundant_full_log(alert: Dict[str, Any]) -> Dict[str, Any]:
+    """Drop ``full_log`` when it only repeats what ``data`` already carries.
+
+    For most decoders ``full_log`` is the raw log line and the primary evidence,
+    so it must reach the model. For an alert this system injected itself it is
+    the ``data`` payload re-serialised, and sending both makes the single largest
+    field in the prompt pure duplication. That is worth removing because prompt
+    evaluation, not generation, dominates latency on a CPU-only inference host.
+
+    The alert is never mutated: callers keep the field for the cache key, the
+    indicators and the audit trail.
+    """
+    full_log = alert.get("full_log")
+    if not isinstance(full_log, str):
+        return alert
+    try:
+        parsed = json.loads(full_log)
+    except ValueError:
+        return alert
+    if not _matches(parsed, alert.get("data")):
+        return alert
+    trimmed = dict(alert)
+    del trimmed["full_log"]
+    return trimmed
+
+
 class OllamaSOCClient:
     """Sends triage prompts to a local Ollama model and validates the output."""
 
@@ -146,7 +191,9 @@ class OllamaSOCClient:
             if corporate_context
             else "(no corporate context retrieved)"
         )
-        alert_block = json.dumps(alert_json, ensure_ascii=False, indent=2)
+        alert_block = json.dumps(
+            _without_redundant_full_log(alert_json), ensure_ascii=False, indent=2
+        )
         return (
             "## CORPORATE CONTEXT (RAG) — trusted, curated knowledge base\n"
             f"{context_block}\n\n"
