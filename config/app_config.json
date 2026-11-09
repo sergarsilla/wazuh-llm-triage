@@ -25,8 +25,8 @@
 
   "escalation_gate": {
     "enabled": "${ESCALATION_GATE_ENABLED:-true}",
-    "critical_indicators": "${ESCALATION_GATE_CRITICAL_INDICATORS:-security_tooling_disabled,log_tampering,credential_access}",
-    "review_indicators": "${ESCALATION_GATE_REVIEW_INDICATORS:-persistence_config,privileged_account_config,container_escape,interactive_shell_spawn,raw_socket_redirect,encoded_payload,pipe_to_interpreter}"
+    "critical_indicators": "${ESCALATION_GATE_CRITICAL_INDICATORS:-security_tooling_disabled,log_tampering,credential_access,preload_hijack}",
+    "review_indicators": "${ESCALATION_GATE_REVIEW_INDICATORS:-persistence_config,privileged_account_config,container_escape,interactive_shell_spawn,raw_socket_redirect,encoded_payload,pipe_to_interpreter,setuid_bit,firewall_disabled}"
   },
 
   "verdict_cache": {
