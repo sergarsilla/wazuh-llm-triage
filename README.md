@@ -147,7 +147,8 @@ only `${VAR:-default}` placeholders; override them via a gitignored `.env`
 | `RESPONDER_DEDUP_TTL_SECONDS` | Skip a repeat of the same containment order within this window (0 = off) | `300` |
 | `MIN_VERDICT_CONFIDENCE` | Abstain below this confidence — route to review, never auto-act (0 = off) | `0.0` |
 | `ESCALATION_GATE_ENABLED` | Require a matched indicator before a verdict may e-mail | `true` |
-| `ESCALATION_GATE_CRITICAL_INDICATORS` | Indicators that escalate even if the LLM dismisses them (comma-separated; empty = none) | `security_tooling_disabled,log_tampering,credential_access` |
+| `ESCALATION_GATE_CRITICAL_INDICATORS` | Indicators that escalate even if the LLM dismisses them (comma-separated; empty = none) | `security_tooling_disabled,log_tampering,credential_access,preload_hijack` |
+| `ESCALATION_GATE_REVIEW_INDICATORS` | Indicators that lift a dismissed verdict to `SUSPICIOUS` (comma-separated; empty = none) | persistence, account, container-escape and shell-spawn shapes |
 | `MAX_QUEUE_SIZE` | Bounded in-flight alert buffer; applies backpressure (0 = unbounded) | `10000` |
 | `VERDICT_CACHE_ENABLED` / `_TTL_SECONDS` / `_MAX_ENTRIES` | Reuse verdicts for repeat alerts | `true` / `3600` / `1024` |
 
@@ -175,6 +176,22 @@ environment details are indexed but never committed. A starter
 `local/environment.txt` is provided to fill in. Re-run `populate` after any
 change.
 
+### Teaching it from your reviews
+
+The `feedback` service lets you label what a verdict was really about, and
+feeds those labels back as precedents the model retrieves for similar alerts:
+
+```bash
+docker compose run --rm feedback review --days 3 -i   # label verdicts one by one
+docker compose run --rm feedback mark <verdict_id> malicious --note "not mine"
+docker compose run --rm feedback stats                # missed threats, false alarms
+docker compose run --rm populate                      # index the new precedents
+```
+
+Labels are appended to `data_ingest/feedback/labels.jsonl`; precedents are
+written to `data_ingest/knowledge_base/local/analyst_precedents.md`. Both are
+gitignored, since they quote real commands.
+
 ## 🔒 Security model
 
 - **Prompt injection** — the alert (including attacker-controlled fields such as
@@ -201,6 +218,9 @@ change.
   nothing is unusual in shape alone and is capped at `SUSPICIOUS` — still in the
   dashboard, no e-mail, no Active Response. `ESCALATION_GATE_CRITICAL_INDICATORS`
   is the exception: indicators that escalate even when the LLM dismisses them.
+  `ESCALATION_GATE_REVIEW_INDICATORS` covers the shapes the model tends to wave
+  through for a trusted admin (persistence, account changes, shell spawns): a
+  dismissal matching one stays visible as `SUSPICIOUS` instead of disappearing.
   Matched indicators are recorded on the verdict, so no alert changes tier
   without an audit trail.
 
