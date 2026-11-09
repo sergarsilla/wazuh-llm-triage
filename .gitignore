@@ -226,6 +226,7 @@ data_ingest/live_alerts.json
 
 # Deployer's real environment knowledge base (never commit private infra notes)
 data_ingest/knowledge_base/local/
+data_ingest/feedback/
 
 # Personal deploy script (host-specific; copy from deploy.sh.example)
 deploy.sh

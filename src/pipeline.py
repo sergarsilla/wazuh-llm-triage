@@ -27,6 +27,7 @@ from typing import Any, Dict, FrozenSet, List, Sequence
 from .config import load_config
 from .indicators import (
     DEFAULT_CRITICAL_INDICATORS,
+    DEFAULT_REVIEW_INDICATORS,
     match_indicators,
     parse_critical_indicators,
 )
@@ -150,20 +151,25 @@ def _apply_escalation_gate(
     classification: str,
     indicators: Sequence[str],
     critical_indicators: FrozenSet[str],
+    review_indicators: FrozenSet[str] = frozenset(),
 ) -> str:
     """Require deterministic evidence before a verdict may reach the e-mail tier.
 
     A MALICIOUS verdict on a command matching no indicator is capped at
     SUSPICIOUS: still visible in the dashboard, but no e-mail and no active
-    response. A critical indicator escalates even when the LLM dismissed it.
+    response. A critical indicator escalates even when the LLM dismissed it; a
+    review indicator lifts a dismissal to SUSPICIOUS, visible but not e-mailed.
 
     Callers must skip this when the alert carries no command: an absent command
     is not evidence of absent danger.
     """
     if classification == "MALICIOUS" and not indicators:
         return "SUSPICIOUS"
-    if classification != "MALICIOUS" and set(indicators) & critical_indicators:
+    matched = set(indicators)
+    if classification != "MALICIOUS" and matched & critical_indicators:
         return "MALICIOUS"
+    if classification == "FALSE_POSITIVE" and matched & review_indicators:
+        return "SUSPICIOUS"
     return classification
 
 
@@ -177,6 +183,7 @@ def _process_alert(
     abstention_threshold: float = 0.0,
     gate_enabled: bool = True,
     critical_indicators: FrozenSet[str] = DEFAULT_CRITICAL_INDICATORS,
+    review_indicators: FrozenSet[str] = DEFAULT_REVIEW_INDICATORS,
 ) -> None:
     """Run a single alert through RAG -> LLM -> (verdict re-injection, Active Response).
 
@@ -232,7 +239,9 @@ def _process_alert(
     indicators: List[str] = []
     if gate_enabled and command:
         indicators = match_indicators(command)
-        gated = _apply_escalation_gate(classification, indicators, critical_indicators)
+        gated = _apply_escalation_gate(
+            classification, indicators, critical_indicators, review_indicators
+        )
         if gated != classification:
             logger.info(
                 "Escalation gate: %s -> %s (indicators: %s)",
@@ -352,11 +361,15 @@ def start_soc_pipeline(config_path: str = "config/app_config.json") -> None:
     gate_cfg = config.get("escalation_gate", {})
     gate_enabled = _as_bool(gate_cfg.get("enabled"), default=True)
     critical_indicators = parse_critical_indicators(gate_cfg.get("critical_indicators"))
+    review_indicators = parse_critical_indicators(
+        gate_cfg.get("review_indicators"), default=DEFAULT_REVIEW_INDICATORS
+    )
     if gate_enabled:
         logger.info(
             "Escalation gate enabled: a verdict e-mails only when the command "
-            "matches an indicator; critical indicators: %s",
+            "matches an indicator; critical indicators: %s; review indicators: %s",
             ", ".join(sorted(critical_indicators)) or "none",
+            ", ".join(sorted(review_indicators)) or "none",
         )
     else:
         logger.warning("Escalation gate DISABLED: the LLM verdict alone drives escalation")
@@ -392,6 +405,7 @@ def start_soc_pipeline(config_path: str = "config/app_config.json") -> None:
                     abstention_threshold=abstention_threshold,
                     gate_enabled=gate_enabled,
                     critical_indicators=critical_indicators,
+                    review_indicators=review_indicators,
                 )
             except Exception:  # noqa: BLE001 - one bad alert must not kill the loop
                 logger.exception("Failed to process alert; continuing")

