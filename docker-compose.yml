@@ -33,3 +33,15 @@ services:
     volumes:
       - ./config:/app/config
       - ./data_ingest:/app/data_ingest
+
+  # Analyst feedback CLI: `docker compose run --rm feedback review -i`.
+  feedback:
+    build: .
+    image: wazuh-llm-triage
+    profiles: ["feedback"]
+    entrypoint: ["python", "-m", "src.feedback"]
+    env_file: .env
+    volumes:
+      - ./config:/app/config
+      - ./data_ingest:/app/data_ingest
+      - /var/ossec/logs/alerts:/var/ossec/logs/alerts:ro

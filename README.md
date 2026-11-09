@@ -176,6 +176,22 @@ environment details are indexed but never committed. A starter
 `local/environment.txt` is provided to fill in. Re-run `populate` after any
 change.
 
+### Teaching it from your reviews
+
+The `feedback` service lets you label what a verdict was really about, and
+feeds those labels back as precedents the model retrieves for similar alerts:
+
+```bash
+docker compose run --rm feedback review --days 3 -i   # label verdicts one by one
+docker compose run --rm feedback mark <verdict_id> malicious --note "not mine"
+docker compose run --rm feedback stats                # missed threats, false alarms
+docker compose run --rm populate                      # index the new precedents
+```
+
+Labels are appended to `data_ingest/feedback/labels.jsonl`; precedents are
+written to `data_ingest/knowledge_base/local/analyst_precedents.md`. Both are
+gitignored, since they quote real commands.
+
 ## 🔒 Security model
 
 - **Prompt injection** — the alert (including attacker-controlled fields such as
