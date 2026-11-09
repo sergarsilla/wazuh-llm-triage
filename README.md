@@ -176,6 +176,27 @@ environment details are indexed but never committed. A starter
 `local/environment.txt` is provided to fill in. Re-run `populate` after any
 change.
 
+### Describe roles, never grant blanket trust
+
+The model follows the knowledge base more than its own system prompt. A note
+saying an admin's commands "are false positives by default" is read as an
+instruction to dismiss whatever that account runs, and a stolen admin session
+is exactly that account. Measured on 20 attacks run under the admin's identity
+plus 100 of that admin's real commands, with a 7B model:
+
+| Account note | Real commands dismissed | Attacks the model flagged |
+|---|---|---|
+| "false positives by default" | 76 / 100 | 10 / 20 |
+| Routine work is usually benign, with the exceptions listed below | 57 / 100 | 17 / 20 |
+| No knowledge base at all | 30 / 100 | 20 / 20 |
+
+So describe what an account normally does, and say explicitly what that
+expectation never covers: reading credentials or keys, writing persistence,
+creating accounts or granting privileges, setuid bits, stopping security
+tooling, firewalls or logs, and outbound shells. The escalation gate catches the
+known shapes of those regardless; the wording decides whether the model also
+catches the ones no indicator describes.
+
 ### Teaching it from your reviews
 
 The `feedback` service lets you label what a verdict was really about, and
