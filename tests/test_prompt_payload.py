@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from src.llm_client import OllamaSOCClient, _without_redundant_full_log
+from src.llm_client import OllamaSOCClient, _prompt_view, _without_redundant_full_log
 
 ANOMALY_DATA = {
     "anomaly_detector": {
@@ -85,3 +85,28 @@ def test_prompt_keeps_the_alert_intact_apart_from_full_log() -> None:
     assert "context fragment" in prompt
     # The duplicate is gone: the payload appears once, inside data.
     assert prompt.count("journalctl") == 1
+
+
+def test_prompt_view_drops_bookkeeping_but_keeps_evidence() -> None:
+    alert = {
+        "id": "1.2", "manager": {"name": "m"}, "timestamp": "t",
+        "rule": {"id": "5402", "level": 7, "description": "sudo", "firedtimes": 3,
+                 "mail": False, "pci_dss": ["10.2"], "mitre": {"id": ["T1548"]}},
+        "data": {"command": "/usr/bin/id"},
+    }
+
+    view = _prompt_view(alert)
+
+    assert "id" not in view and "manager" not in view
+    assert view["rule"] == {"id": "5402", "level": 7, "description": "sudo", "mitre": {"id": ["T1548"]}}
+    assert view["data"] == {"command": "/usr/bin/id"}
+    assert alert["rule"]["firedtimes"] == 3
+
+
+def test_prompt_view_keeps_top_features_without_an_explanation() -> None:
+    features = [{"feature": "agent_id", "contribution_pct": 50.0}]
+    with_explanation = {"data": {"anomaly_detector": {"top_features": features, "explanation": "x"}}}
+    without_explanation = {"data": {"anomaly_detector": {"top_features": features}}}
+
+    assert "top_features" not in _prompt_view(with_explanation)["data"]["anomaly_detector"]
+    assert _prompt_view(without_explanation)["data"]["anomaly_detector"]["top_features"] == features

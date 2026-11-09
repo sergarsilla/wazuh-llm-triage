@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import secrets
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 import requests
 
@@ -157,6 +157,31 @@ def _without_redundant_full_log(alert: Dict[str, Any]) -> Dict[str, Any]:
     return trimmed
 
 
+# Envelope fields with no bearing on the verdict: delivery bookkeeping and
+# compliance tags. Each one costs prompt-evaluation time on a CPU host.
+_PROMPT_OMITTED_FIELDS: Dict[str, Tuple[str, ...]] = {
+    "": ("id", "manager"),
+    "rule": ("firedtimes", "mail", "gdpr", "pci_dss", "hipaa", "nist_800_53", "tsc", "gpg13"),
+}
+
+
+def _prompt_view(alert: Dict[str, Any]) -> Dict[str, Any]:
+    """Return the alert as the model should see it, without changing the original."""
+    view = dict(_without_redundant_full_log(alert))
+    for key in _PROMPT_OMITTED_FIELDS[""]:
+        view.pop(key, None)
+    rule = view.get("rule")
+    if isinstance(rule, dict):
+        view["rule"] = {k: v for k, v in rule.items() if k not in _PROMPT_OMITTED_FIELDS["rule"]}
+    data = view.get("data")
+    anomaly = data.get("anomaly_detector") if isinstance(data, dict) else None
+    if isinstance(anomaly, dict) and anomaly.get("explanation"):
+        # top_features is the explanation string broken into structured parts.
+        trimmed = {k: v for k, v in anomaly.items() if k != "top_features"}
+        view["data"] = {**data, "anomaly_detector": trimmed}
+    return view
+
+
 class OllamaSOCClient:
     """Sends triage prompts to a local Ollama model and validates the output."""
 
@@ -192,7 +217,7 @@ class OllamaSOCClient:
             else "(no corporate context retrieved)"
         )
         alert_block = json.dumps(
-            _without_redundant_full_log(alert_json), ensure_ascii=False, indent=2
+            _prompt_view(alert_json), ensure_ascii=False, separators=(",", ":")
         )
         return (
             "## CORPORATE CONTEXT (RAG) — trusted, curated knowledge base\n"
