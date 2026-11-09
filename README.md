@@ -148,6 +148,7 @@ only `${VAR:-default}` placeholders; override them via a gitignored `.env`
 | `MIN_VERDICT_CONFIDENCE` | Abstain below this confidence — route to review, never auto-act (0 = off) | `0.0` |
 | `ESCALATION_GATE_ENABLED` | Require a matched indicator before a verdict may e-mail | `true` |
 | `ESCALATION_GATE_CRITICAL_INDICATORS` | Indicators that escalate even if the LLM dismisses them (comma-separated; empty = none) | `security_tooling_disabled,log_tampering,credential_access` |
+| `ESCALATION_GATE_REVIEW_INDICATORS` | Indicators that lift a dismissed verdict to `SUSPICIOUS` (comma-separated; empty = none) | persistence, account, container-escape and shell-spawn shapes |
 | `MAX_QUEUE_SIZE` | Bounded in-flight alert buffer; applies backpressure (0 = unbounded) | `10000` |
 | `VERDICT_CACHE_ENABLED` / `_TTL_SECONDS` / `_MAX_ENTRIES` | Reuse verdicts for repeat alerts | `true` / `3600` / `1024` |
 
@@ -201,6 +202,9 @@ change.
   nothing is unusual in shape alone and is capped at `SUSPICIOUS` — still in the
   dashboard, no e-mail, no Active Response. `ESCALATION_GATE_CRITICAL_INDICATORS`
   is the exception: indicators that escalate even when the LLM dismisses them.
+  `ESCALATION_GATE_REVIEW_INDICATORS` covers the shapes the model tends to wave
+  through for a trusted admin (persistence, account changes, shell spawns): a
+  dismissal matching one stays visible as `SUSPICIOUS` instead of disappearing.
   Matched indicators are recorded on the verdict, so no alert changes tier
   without an audit trail.
 

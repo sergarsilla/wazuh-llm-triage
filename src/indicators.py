@@ -95,6 +95,20 @@ DEFAULT_CRITICAL_INDICATORS: FrozenSet[str] = frozenset(
     {"security_tooling_disabled", "log_tampering", "credential_access"}
 )
 
+# Indicators that keep a dismissal visible: the LLM trusts a known admin, so a
+# hijacked admin account would otherwise be waved through on exactly these.
+DEFAULT_REVIEW_INDICATORS: FrozenSet[str] = frozenset(
+    {
+        "persistence_config",
+        "privileged_account_config",
+        "container_escape",
+        "interactive_shell_spawn",
+        "raw_socket_redirect",
+        "encoded_payload",
+        "pipe_to_interpreter",
+    }
+)
+
 
 def match_indicators(command: str) -> List[str]:
     """Return the indicators the command matches; empty means shape-only anomaly."""
@@ -103,14 +117,16 @@ def match_indicators(command: str) -> List[str]:
     return [name for name, pattern in INDICATOR_PATTERNS.items() if pattern.search(command)]
 
 
-def parse_critical_indicators(value: object) -> FrozenSet[str]:
+def parse_critical_indicators(
+    value: object, default: FrozenSet[str] = DEFAULT_CRITICAL_INDICATORS
+) -> FrozenSet[str]:
     """Parse a comma-separated string or sequence; unknown names are dropped.
 
     Dropping rather than honouring a typo keeps a misconfiguration from silently
     widening the set of indicators that escalate on their own.
     """
     if value is None:
-        return DEFAULT_CRITICAL_INDICATORS
+        return default
     items: Sequence[str] = (
         value if isinstance(value, (list, tuple)) else str(value).split(",")
     )

